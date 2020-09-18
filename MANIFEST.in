@@ -1,0 +1,6 @@
+graft src
+graft tests
+graft third_parties
+
+include VERSION
+global-exclude *.py[cod] __pycache__
