@@ -1,0 +1,9 @@
+requests[socks]
+clint
+
+setuptools
+wheel
+
+tox
+
+twine

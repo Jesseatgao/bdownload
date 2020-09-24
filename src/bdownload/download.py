@@ -242,7 +242,7 @@ class BDownloader(object):
         self.close()
         return False
 
-    def __init__(self, max_workers=None, min_split_size=1024*1024, chunk_size=1024*10, proxy=None, cookies=None, logger=None, progress='bar'):
+    def __init__(self, max_workers=None, min_split_size=1024*1024, chunk_size=1024*10, proxy=None, cookies=None, logger=None, progress='mill'):
         self.requester = requests_retry_session()
         if proxy is not None:
             self.requester.proxies = dict(http=proxy, https=proxy)
