@@ -1,3 +1,7 @@
+#from __future__ import absolute_import
+from __future__ import division
+from __future__ import unicode_literals
+
 import time
 import random
 from functools import wraps, reduce
@@ -61,7 +65,7 @@ def retry(exceptions, tries=10, backoff_factor=0.1, logger=None):
 
 class RequestsSessionWrapper(Session):
     def __init__(self):
-        super().__init__()
+        super(RequestsSessionWrapper, self).__init__()
 
         headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:69.0) Gecko/20100101 Firefox/69.0',
@@ -72,7 +76,7 @@ class RequestsSessionWrapper(Session):
 
     @retry(requests.RequestException)
     def get(self, url, params=None, timeout=(3.2, 6), verify=True, **kwargs):
-        return super().get(url, params=params, timeout=timeout, verify=verify, **kwargs)
+        return super(RequestsSessionWrapper, self).get(url, params=params, timeout=timeout, verify=verify, **kwargs)
 
 
 def requests_retry_session(
