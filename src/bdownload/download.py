@@ -246,12 +246,15 @@ class BDownloader(object):
         self.close()
         return False
 
-    def __init__(self, max_workers=None, min_split_size=1024*1024, chunk_size=1024*10, proxy=None, cookies=None, logger=None, progress='mill'):
+    def __init__(self, max_workers=None, min_split_size=1024*1024, chunk_size=1024*10, proxy=None, cookies=None,
+                 user_agent=None, logger=None, progress='mill'):
         self.requester = requests_retry_session()
         if proxy is not None:
             self.requester.proxies = dict(http=proxy, https=proxy)
         if cookies is not None:
             self.requester.cookies = _build_cookiejar_from_kvp(cookies)
+        if user_agent is not None:
+            self.requester.headers.update({'User-Agent': user_agent})
 
         self.executor = ThreadPoolExecutor(max_workers)
         self.mgmnt_thread = None

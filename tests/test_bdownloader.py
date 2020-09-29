@@ -76,7 +76,9 @@ class TestBDownloader(unittest.TestCase):
         file_url = fi['url']
         file_sha1_exp = fi['sha1']
 
-        with BDownloader(max_workers=20, progress='mill') as downloader:
+        ua = 'Mozilla/5.0 (iPad; CPU OS 12_2 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148'
+
+        with BDownloader(max_workers=20, user_agent=ua, progress='mill') as downloader:
             downloader.download(file_path, file_url)
 
         hashf = hashlib.sha1()

@@ -25,6 +25,7 @@ def arg_parser():
     parser.add_argument('-s', '--chunk-size', dest='chunk_size', default=DEFAULT_CHUNK_SIZE, type=int, help='every request range size')
     parser.add_argument('-e', '--cookie', dest='cookie', default=None,
                         help='cookies in the form of "cookie_key=cookie_value cookie_key2=cookie_value2"')
+    parser.add_argument('--user-agent', dest='user_agent', default=None, help='custom user agent')
     parser.add_argument('-P', '--progress', dest='progress', default='mill', choices=['mill', 'bar'], help='progress indicator')
 
     return parser
@@ -37,5 +38,5 @@ def main():
     file_urls = list(zip(files, args.url))
 
     with BDownloader(max_workers=args.max_workers, min_split_size=args.min_split_size, chunk_size=args.chunk_size,
-                     proxy=args.proxy, cookies=args.cookie, progress=args.progress) as downloader:
+                     proxy=args.proxy, cookies=args.cookie, user_agent=args.user_agent, progress=args.progress) as downloader:
         downloader.downloads(file_urls)
