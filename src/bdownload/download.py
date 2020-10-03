@@ -127,8 +127,11 @@ class MillProgress(object):
     Source_URL: https://github.com/kennethreitz-archive/clint/blob/master/clint/textui/progress.py
     """
     STREAM = sys.stderr
-    MILL_TEMPLATE = '{}  {}  {:10,d}/{:<10,d} elapsed: {}\r'
+    MILL_TEMPLATE = '{}  {}  {:10,d}/{:<10,d} {:>7}: {}\r'
     MILL_CHARS = ['|', '/', '-', '\\']  # '+', 'x'
+
+    ETA_INTERVAL = 1
+    ETA_SMA_WINDOW = 9
 
     def __enter__(self):
         return self
@@ -154,6 +157,11 @@ class MillProgress(object):
         self.start = time.time()
         self.elapsed = 0
 
+        self.ittimes = []
+        self.eta = 0
+        self.etadelta = time.time()
+        self.etadisp = self.format_time(self.eta)
+
         self.show(0)
 
     def format_time(self, seconds):
@@ -171,8 +179,26 @@ class MillProgress(object):
             self.expected_size = count
 
         self.last_progress = progress
-        self.elapsed = time.time() - self.start
-        elapsed = self.format_time(self.elapsed)
+
+        if self.expected_size:
+            if (time.time() - self.etadelta) > self.ETA_INTERVAL:
+                self.etadelta = time.time()
+                self.ittimes = \
+                    self.ittimes[-self.ETA_SMA_WINDOW:] + \
+                    [-(self.start - time.time()) / (progress + 1)]
+                self.eta = \
+                    sum(self.ittimes) / float(len(self.ittimes)) * \
+                    (self.expected_size - progress)
+                self.etadisp = self.format_time(self.eta)
+
+            time_disp = self.etadisp
+            time_label = 'eta'
+        else:
+            self.elapsed = time.time() - self.start
+            elapsed_disp = self.format_time(self.elapsed)
+
+            time_disp = elapsed_disp
+            time_label = 'elapsed'
 
         if not self.hide:
             #if ((progress % self.every) == 0 or  # True every "every" updates
@@ -182,7 +208,7 @@ class MillProgress(object):
                 # self.STREAM.write(self.MILL_TEMPLATE % (
                 #     self.label, self.mill_char(progress), str(progress), expected, elapsed))
                 self.STREAM.write(self.MILL_TEMPLATE.format(
-                    self.label, self.mill_char(self.every_progress), progress, self.expected_size, elapsed))
+                    self.label, self.mill_char(self.every_progress), progress, self.expected_size, time_label, time_disp))
                 self.STREAM.flush()
 
                 self.delta_progress = progress
@@ -190,11 +216,12 @@ class MillProgress(object):
 
     def done(self):
         self.elapsed = time.time() - self.start
-        elapsed = self.format_time(self.elapsed)
+        elapsed_disp = self.format_time(self.elapsed)
+        time_label = 'elapsed'
 
         if not self.hide:
             self.STREAM.write(self.MILL_TEMPLATE.format(
-                self.label, ' ', self.last_progress, self.expected_size, elapsed))
+                self.label, ' ', self.last_progress, self.expected_size, time_label, elapsed_disp))
             self.STREAM.write('\n')
             self.STREAM.flush()
 
