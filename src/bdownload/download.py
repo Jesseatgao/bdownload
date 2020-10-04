@@ -31,7 +31,9 @@ def retry(exceptions, tries=10, backoff_factor=0.1, logger=None):
         backoff_factor:
         logger: Logger to use. None to disable logging.
     """
-    logger = logger or logging.getLogger()
+    if logger is None:
+        logging.basicConfig()
+        logger = logging.getLogger()
 
     def deco_retry(f):
         NTRIES = 7
@@ -127,8 +129,8 @@ class MillProgress(object):
     Source_URL: https://github.com/kennethreitz-archive/clint/blob/master/clint/textui/progress.py
     """
     STREAM = sys.stderr
-    MILL_TEMPLATE = '{}  {}  {:10,d}/{:<10,d} {:>7}: {}\r'
-    MILL_CHARS = ['|', '/', '-', '\\']  # '+', 'x'
+    MILL_TEMPLATE = '{}  {} {:10,d}/{:<10} {:>7}: {}\r'
+    MILL_CHARS = ['|', '/', '-', '\\']
 
     ETA_INTERVAL = 1
     ETA_SMA_WINDOW = 9
@@ -149,7 +151,7 @@ class MillProgress(object):
                 self.hide = not self.STREAM.isatty()
             except AttributeError:  # output does not support isatty()
                 self.hide = True
-        self.expected_size = expected_size or 0
+        self.expected_size = expected_size
         self.every = every
         self.last_progress = 0
         self.delta_progress = 0
@@ -190,15 +192,13 @@ class MillProgress(object):
                     sum(self.ittimes) / float(len(self.ittimes)) * \
                     (self.expected_size - progress)
                 self.etadisp = self.format_time(self.eta)
-
-            time_disp = self.etadisp
-            time_label = 'eta'
         else:
             self.elapsed = time.time() - self.start
             elapsed_disp = self.format_time(self.elapsed)
 
-            time_disp = elapsed_disp
-            time_label = 'elapsed'
+        time_disp = self.etadisp if self.expected_size else elapsed_disp
+        time_label = 'eta' if self.expected_size else 'elapsed'
+        expected_disp = '{:<10,d}'.format(self.expected_size) if self.expected_size else '--'
 
         if not self.hide:
             #if ((progress % self.every) == 0 or  # True every "every" updates
@@ -208,7 +208,7 @@ class MillProgress(object):
                 # self.STREAM.write(self.MILL_TEMPLATE % (
                 #     self.label, self.mill_char(progress), str(progress), expected, elapsed))
                 self.STREAM.write(self.MILL_TEMPLATE.format(
-                    self.label, self.mill_char(self.every_progress), progress, self.expected_size, time_label, time_disp))
+                    self.label, self.mill_char(self.every_progress), progress, expected_disp, time_label, time_disp))
                 self.STREAM.flush()
 
                 self.delta_progress = progress
@@ -218,10 +218,11 @@ class MillProgress(object):
         self.elapsed = time.time() - self.start
         elapsed_disp = self.format_time(self.elapsed)
         time_label = 'elapsed'
+        expected_disp = '{:<10,d}'.format(self.expected_size) if self.expected_size else '--'
 
         if not self.hide:
             self.STREAM.write(self.MILL_TEMPLATE.format(
-                self.label, ' ', self.last_progress, self.expected_size, time_label, elapsed_disp))
+                self.label, ' ', self.last_progress, expected_disp, time_label, elapsed_disp))
             self.STREAM.write('\n')
             self.STREAM.flush()
 
@@ -287,7 +288,12 @@ class BDownloader(object):
         self.mgmnt_thread = None
         self.stop = False   # Flag signaling waiting threads to exit
         self._dl_ctx = {"total_size": 0, "accurate": True, "files": {}, "futures": {}}  # see CTX structure definition
-        self._logger = logger or logging.getLogger()
+
+        if logger is None:
+            logging.basicConfig()
+            logger = logging.getLogger()
+        self._logger = logger
+
         self.min_split_size = min_split_size
         self.chunk_size = chunk_size
 
