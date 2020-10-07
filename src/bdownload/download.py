@@ -10,6 +10,7 @@ import sys
 import os
 import threading
 from concurrent.futures import ThreadPoolExecutor, wait
+from math import trunc
 
 import requests
 from requests.adapters import HTTPAdapter
@@ -129,7 +130,7 @@ class MillProgress(object):
     Source_URL: https://github.com/kennethreitz-archive/clint/blob/master/clint/textui/progress.py
     """
     STREAM = sys.stderr
-    MILL_TEMPLATE = '{}  {} {:10,d}/{:<10} {:>7}: {}\r'
+    MILL_TEMPLATE = '{}  {} {:10,d}/{:<10} {} {:>7}: {}\r'
     MILL_CHARS = ['|', '/', '-', '\\']
 
     ETA_INTERVAL = 1
@@ -183,15 +184,18 @@ class MillProgress(object):
         self.last_progress = progress
 
         if self.expected_size:
-            if (time.time() - self.etadelta) > self.ETA_INTERVAL:
-                self.etadelta = time.time()
-                self.ittimes = \
-                    self.ittimes[-self.ETA_SMA_WINDOW:] + \
-                    [-(self.start - time.time()) / (progress + 1)]
-                self.eta = \
-                    sum(self.ittimes) / float(len(self.ittimes)) * \
-                    (self.expected_size - progress)
-                self.etadisp = self.format_time(self.eta)
+            if progress <= self.expected_size:
+                if (time.time() - self.etadelta) > self.ETA_INTERVAL:
+                    self.etadelta = time.time()
+                    self.ittimes = \
+                        self.ittimes[-self.ETA_SMA_WINDOW:] + \
+                        [-(self.start - time.time()) / (progress + 1)]
+                    self.eta = \
+                        sum(self.ittimes) / float(len(self.ittimes)) * \
+                        (self.expected_size - progress)
+                    self.etadisp = self.format_time(self.eta)
+            else:
+                self.etadisp = '--:--:--'
         else:
             self.elapsed = time.time() - self.start
             elapsed_disp = self.format_time(self.elapsed)
@@ -199,6 +203,7 @@ class MillProgress(object):
         time_disp = self.etadisp if self.expected_size else elapsed_disp
         time_label = 'eta' if self.expected_size else 'elapsed'
         expected_disp = '{:<10,d}'.format(self.expected_size) if self.expected_size else '--'
+        percent_disp = '{:6.2f}%'.format(trunc(progress/self.expected_size*100*100)/100) if self.expected_size else ''
 
         if not self.hide:
             #if ((progress % self.every) == 0 or  # True every "every" updates
@@ -207,8 +212,8 @@ class MillProgress(object):
 
                 # self.STREAM.write(self.MILL_TEMPLATE % (
                 #     self.label, self.mill_char(progress), str(progress), expected, elapsed))
-                self.STREAM.write(self.MILL_TEMPLATE.format(
-                    self.label, self.mill_char(self.every_progress), progress, expected_disp, time_label, time_disp))
+                self.STREAM.write(self.MILL_TEMPLATE.format(self.label, self.mill_char(self.every_progress),
+                                                            progress, expected_disp, percent_disp, time_label, time_disp))
                 self.STREAM.flush()
 
                 self.delta_progress = progress
@@ -219,10 +224,11 @@ class MillProgress(object):
         elapsed_disp = self.format_time(self.elapsed)
         time_label = 'elapsed'
         expected_disp = '{:<10,d}'.format(self.expected_size) if self.expected_size else '--'
+        percent_disp = '{:6}%'.format(trunc(self.last_progress/self.expected_size*100)) if self.expected_size else ''
 
         if not self.hide:
             self.STREAM.write(self.MILL_TEMPLATE.format(
-                self.label, ' ', self.last_progress, expected_disp, time_label, elapsed_disp))
+                self.label, ' ', self.last_progress, expected_disp, percent_disp, time_label, elapsed_disp))
             self.STREAM.write('\n')
             self.STREAM.flush()
 
