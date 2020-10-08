@@ -27,6 +27,8 @@ def arg_parser():
                         help='cookies in the form of "cookie_key=cookie_value cookie_key2=cookie_value2"')
     parser.add_argument('--user-agent', dest='user_agent', default=None, help='custom user agent')
     parser.add_argument('-P', '--progress', dest='progress', default='mill', choices=['mill', 'bar'], help='progress indicator')
+    parser.add_argument('--num-pools', dest='num_pools', default=20, type=int, help='number of connection pools')
+    parser.add_argument('--pool-size', dest='pool_size', default=50, type=int, help='max number of connections in the pool')
 
     return parser
 
@@ -38,5 +40,6 @@ def main():
     file_urls = list(zip(files, args.url))
 
     with BDownloader(max_workers=args.max_workers, min_split_size=args.min_split_size, chunk_size=args.chunk_size,
-                     proxy=args.proxy, cookies=args.cookie, user_agent=args.user_agent, progress=args.progress) as downloader:
+                     proxy=args.proxy, cookies=args.cookie, user_agent=args.user_agent, progress=args.progress,
+                     num_pools=args.num_pools, pool_maxsize=args.pool_size) as downloader:
         downloader.downloads(file_urls)

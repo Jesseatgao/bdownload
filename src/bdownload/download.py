@@ -87,6 +87,8 @@ def requests_retry_session(
         backoff_factor=0.2,
         status_forcelist=(500, 502, 504),
         session=None,
+        num_pools=20,
+        pool_maxsize=50
 ):
     """
     Ref: https://www.peterbe.com/plog/best-practice-with-retries-with-requests
@@ -102,7 +104,7 @@ def requests_retry_session(
         backoff_factor=backoff_factor,
         status_forcelist=status_forcelist,
     )
-    adapter = HTTPAdapter(max_retries=max_retries)
+    adapter = HTTPAdapter(max_retries=max_retries, pool_connections=num_pools, pool_maxsize=pool_maxsize)
     session.mount('http://', adapter)
     session.mount('https://', adapter)
     return session
@@ -130,11 +132,13 @@ class MillProgress(object):
     Source_URL: https://github.com/kennethreitz-archive/clint/blob/master/clint/textui/progress.py
     """
     STREAM = sys.stderr
-    MILL_TEMPLATE = '{}  {} {:10,d}/{:<10} {} {:>7}: {}\r'
+    MILL_TEMPLATE = '{}  {}  {:,d}/{:<}  {}  {:>}: {}\r'
     MILL_CHARS = ['|', '/', '-', '\\']
 
-    ETA_INTERVAL = 1
-    ETA_SMA_WINDOW = 9
+    # How long to wait before recalculating the ETA
+    ETA_INTERVAL = 1.5
+    # How many intervals (excluding the current one) to calculate the simple moving average
+    ETA_SMA_WINDOW = 5
 
     def __enter__(self):
         return self
@@ -202,7 +206,7 @@ class MillProgress(object):
 
         time_disp = self.etadisp if self.expected_size else elapsed_disp
         time_label = 'eta' if self.expected_size else 'elapsed'
-        expected_disp = '{:<10,d}'.format(self.expected_size) if self.expected_size else '--'
+        expected_disp = '{:<,d}'.format(self.expected_size) if self.expected_size else '--'
         percent_disp = '{:6.2f}%'.format(trunc(progress/self.expected_size*100*100)/100) if self.expected_size else ''
 
         if not self.hide:
@@ -223,7 +227,7 @@ class MillProgress(object):
         self.elapsed = time.time() - self.start
         elapsed_disp = self.format_time(self.elapsed)
         time_label = 'elapsed'
-        expected_disp = '{:<10,d}'.format(self.expected_size) if self.expected_size else '--'
+        expected_disp = '{:<,d}'.format(self.expected_size) if self.expected_size else '--'
         percent_disp = '{:6}%'.format(trunc(self.last_progress/self.expected_size*100)) if self.expected_size else ''
 
         if not self.hide:
@@ -281,8 +285,8 @@ class BDownloader(object):
         return False
 
     def __init__(self, max_workers=None, min_split_size=1024*1024, chunk_size=1024*10, proxy=None, cookies=None,
-                 user_agent=None, logger=None, progress='mill'):
-        self.requester = requests_retry_session()
+                 user_agent=None, logger=None, progress='mill', num_pools=20, pool_maxsize=50):
+        self.requester = requests_retry_session(num_pools=num_pools, pool_maxsize=pool_maxsize)
         if proxy is not None:
             self.requester.proxies = dict(http=proxy, https=proxy)
         if cookies is not None:
