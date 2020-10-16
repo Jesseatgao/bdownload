@@ -136,9 +136,9 @@ class MillProgress(object):
     MILL_CHARS = ['|', '/', '-', '\\']
 
     # How long to wait before recalculating the ETA
-    ETA_INTERVAL = 1.5
+    ETA_INTERVAL = 1
     # How many intervals (excluding the current one) to calculate the simple moving average
-    ETA_SMA_WINDOW = 5
+    ETA_SMA_WINDOW = 9
 
     def __enter__(self):
         return self
@@ -193,9 +193,9 @@ class MillProgress(object):
                     self.etadelta = time.time()
                     self.ittimes = \
                         self.ittimes[-self.ETA_SMA_WINDOW:] + \
-                        [-(self.start - time.time()) / (progress + 1)]
+                        [(time.time() - self.start) / (progress + 1)]
                     self.eta = \
-                        sum(self.ittimes) / float(len(self.ittimes)) * \
+                        sum(self.ittimes) / len(self.ittimes) * \
                         (self.expected_size - progress)
                     self.etadisp = self.format_time(self.eta)
             else:
@@ -284,7 +284,7 @@ class BDownloader(object):
         self.close()
         return False
 
-    def __init__(self, max_workers=None, min_split_size=1024*1024, chunk_size=1024*10, proxy=None, cookies=None,
+    def __init__(self, max_workers=None, min_split_size=1024*1024, chunk_size=1024*100, proxy=None, cookies=None,
                  user_agent=None, logger=None, progress='mill', num_pools=20, pool_maxsize=50):
         self.requester = requests_retry_session(num_pools=num_pools, pool_maxsize=pool_maxsize)
         if proxy is not None:
@@ -542,6 +542,16 @@ class BDownloader(object):
     def _is_all_done(self):
         return all(f.done() for f in self._dl_ctx['futures'])
 
+    def _calc_completed(self):
+        completed = 0
+        for ctx_path_name in self._dl_ctx['files'].values():
+            ctx_ranges = ctx_path_name.get('ranges')
+            if ctx_ranges:
+                for ctx_range in ctx_ranges.values():
+                    completed += ctx_range.get('offset', 0)
+
+        return completed
+
     def _manage_tasks(self):
         total_size = self._dl_ctx['total_size']
 
@@ -553,30 +563,16 @@ class BDownloader(object):
         else:
             inaccurate_progress_bar = MillProgress(label='Downloaded/Expected(inaccurate):', expected_size=total_size, every=1024)
 
-        done = False
-        while True:
-            completed = 0
-            for ctx_path_name in self._dl_ctx['files'].values():
-                ctx_ranges = ctx_path_name.get('ranges')
-                if ctx_ranges:
-                    for ctx_range in ctx_ranges.values():
-                        completed += ctx_range.get('offset', 0)
-
+        progress_bar = accurate_progress_bar if self._dl_ctx['accurate'] else inaccurate_progress_bar
+        while not self.stop:
             progress_bar = accurate_progress_bar if self._dl_ctx['accurate'] else inaccurate_progress_bar
 
-            if not done:
-                progress_bar.show(completed, count=self._dl_ctx['total_size'])
+            progress_bar.show(self._calc_completed(), count=self._dl_ctx['total_size'])
 
-            if not self._is_all_done():
-                done = False
-                time.sleep(0.1)
-            else:
-                done = True
-                if not self.stop:
-                    time.sleep(1)
-                else:
-                    progress_bar.done()
-                    break
+            time.sleep(0.1)
+        else:
+            progress_bar.show(self._calc_completed(), count=self._dl_ctx['total_size'])
+            progress_bar.done()
 
     def downloads(self, path_urls):
         """path_urls: [('path1', r'url1\turl2\turl3'),('path2', 'url4'),]

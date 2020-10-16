@@ -8,8 +8,8 @@ import re
 from .download import BDownloader
 
 DEFAULT_MAX_WORKER = 20
-DEFAULT_MIN_SPLIT_SIZE = 1024*1024
-DEFAULT_CHUNK_SIZE = 1024*10
+DEFAULT_MIN_SPLIT_SIZE = 1024*1024  # 1M
+DEFAULT_CHUNK_SIZE = 1024*100  # 100K
 
 
 def normalize_bytes_num(bytes_num):
