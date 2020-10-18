@@ -571,7 +571,8 @@ class BDownloader(object):
 
             time.sleep(0.1)
         else:
-            progress_bar.show(self._calc_completed(), count=self._dl_ctx['total_size'])
+            progress_bar.last_progress = self._dl_ctx['total_size'] if self._dl_ctx['accurate'] else self._calc_completed()
+            progress_bar.expected_size = self._dl_ctx['total_size']
             progress_bar.done()
 
     def downloads(self, path_urls):

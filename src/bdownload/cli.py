@@ -13,7 +13,13 @@ DEFAULT_CHUNK_SIZE = 1024*100  # 100K
 
 
 def normalize_bytes_num(bytes_num):
-    if not re.match('^[1-9][0-9]*[kKmM]?$', bytes_num):
+    try:
+        matched = normalize_bytes_num.regex.match(bytes_num)
+    except AttributeError:
+        normalize_bytes_num.regex = re.compile('^[1-9][0-9]*[kKmM]?$')
+        matched = normalize_bytes_num.regex.match(bytes_num)
+
+    if not matched:
         msg = '{!r} is invalid, use, for example, 1024, 10K, or 2M instead'.format(bytes_num)
         raise ArgumentTypeError(msg)
 
