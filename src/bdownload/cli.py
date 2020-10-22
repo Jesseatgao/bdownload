@@ -4,12 +4,25 @@ from __future__ import unicode_literals
 from argparse import ArgumentParser, ArgumentTypeError
 from os.path import join, normpath, abspath
 import re
+from codecs import encode, decode
 
 from .download import BDownloader
 
 DEFAULT_MAX_WORKER = 20
 DEFAULT_MIN_SPLIT_SIZE = 1024*1024  # 1M
 DEFAULT_CHUNK_SIZE = 1024*100  # 100K
+
+
+def dec_raw_tab_separated_urls(url):
+    """decode a *raw* URL string that may consist of multiple escaped TAB-separated URLs
+    `url` examples:
+        r'https://fakewebsite-01.com/downloads/soulbody4ct.pdf\thttps://fakewebsite-02.com/archives/soulbody4ct.pdf'
+        r"https://fakewebsite-01.com/downloads/ipcress.docx	https://fakewebsite-02.com/archives/ipcress.docx"
+    References:
+        https://stackoverflow.com/questions/1885181/how-to-un-escape-a-backslash-escaped-string
+        https://stackoverflow.com/questions/34145686/handling-argparse-escaped-character-as-option
+    """
+    return decode(encode(url, 'latin-1'), 'unicode_escape')
 
 
 def normalize_bytes_num(bytes_num):
@@ -35,8 +48,14 @@ def arg_parser():
     parser = ArgumentParser()
 
     parser.add_argument('-o', '--output', nargs='+', required=True, dest='output',
-                        help='one or more file names, e.g. "file1.zip file2.tgz", paired with URLs specified by --url')
-    parser.add_argument('--url', nargs='+', required=True, dest='url', help='URL(s) for files to be downloaded')
+                        help='one or more file names, e.g. `-o file1.zip ~/file2.tgz`, paired with URLs specified by --url')
+    parser.add_argument('--url', nargs='+', required=True, dest='url', type=dec_raw_tab_separated_urls,
+                        help='URL(s) for the files to be downloaded, '
+                             'which might be TAB-separated URIs pointing to the same file, '
+                             'e.g. `--url https://yoursite.net/yourfile.7z`, '
+                             '`--url "https://yoursite01.net/thefile.7z\\thttps://yoursite02.com/thefile.7z"`, '
+                             'or `--url "http://foo.cc/file1.zip" "http://bar.cc/file2.tgz\\thttp://bar2.cc/file2.tgz"`'
+                        )
     parser.add_argument('-D', '--dir', default='.', dest='dir', help='path to save the downloaded files')
     parser.add_argument('-p', '--proxy', dest='proxy', default=None,
                         help='proxy in the form of "http://[user:pass@]host:port" or "socks5://[user:pass@]host:port" ')

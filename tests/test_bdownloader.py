@@ -59,7 +59,7 @@ NUM_SAMPLES = 3
 class TestBDownloader(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.tmp_dir = tempfile.mkdtemp(prefix='bdl-tmp-')
+        cls.tmp_dir = tempfile.mkdtemp(prefix='bdl-')
 
         seed()
         cls.files = [FILES[idx] for idx in sample(range(len(FILES)), NUM_SAMPLES)]

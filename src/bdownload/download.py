@@ -429,17 +429,28 @@ class BDownloader(object):
     def _pick_file_url(self, path_name):
         """Select one URL from multiple sources according to max-connection-per-server etc
         """
-        ctx_file = self._dl_ctx['files'][path_name]
-        orig_urls = list(ctx_file['urls'].keys())
-        range_urls = [url for url, ctx_url in ctx_file['urls'].items() if ctx_url['accept_ranges'] == 'bytes']
+        STRIPE_WIDTH = 3
+
+        ctx_file_urls = self._dl_ctx['files'][path_name]['urls']
         if self._is_download_resumable(path_name):
-            return range_urls
+            urls = [url for url, ctx_url in ctx_file_urls.items() if ctx_url['accept_ranges'] == 'bytes']
         else:
-            return orig_urls
+            urls = list(ctx_file_urls.keys())
+
+        # Round Robin scheduling
+        while True:
+            for url in urls:
+                ctx_url = ctx_file_urls[url]
+                ctx_url['refcnt'] += 1
+                yield [url]
+
+                while ctx_url['refcnt'] % STRIPE_WIDTH:
+                    ctx_url['refcnt'] += 1
+                    yield [url]
 
     def _build_ctx_internal(self, path_name, url):
         file_name = os.path.basename(path_name)
-        urls = url.split(r'\t')  # "maybe '\t' separated URLs"
+        urls = url.split('\t')  # maybe TAB-separated URLs
         ctx_file = self._dl_ctx['files'][path_name] = {}
         ctx_file['length'] = 0
         ctx_file['resumable'] = False
@@ -489,6 +500,7 @@ class BDownloader(object):
         else:
             ranges.append((0, None))
 
+        iter_url = self._pick_file_url(path_name)
         for start, end in ranges:
             req_range = "bytes={}-{}".format(start, end)
             ctx_range = ctx_file['ranges'][req_range] = {}
@@ -498,7 +510,7 @@ class BDownloader(object):
                 'offset': 0,
                 'start_time': 0,
                 'rt_dl_speed': 0,
-                'url': self._pick_file_url(path_name)
+                'url': next(iter_url)
             })
 
     def _build_ctx(self, path_urls):
@@ -576,7 +588,7 @@ class BDownloader(object):
             progress_bar.done()
 
     def downloads(self, path_urls):
-        """path_urls: [('path1', r'url1\turl2\turl3'),('path2', 'url4'),]
+        """path_urls: [('path1', 'url1\turl2\turl3'),('path2', 'url4'),]
         """
         for chunk_path_urls in self.list_split(path_urls, chunk_size=2):
             if self._create_empty_downloads(chunk_path_urls) or self._build_ctx(chunk_path_urls):
