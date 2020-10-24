@@ -5,6 +5,7 @@ from argparse import ArgumentParser, ArgumentTypeError
 from os.path import join, normpath, abspath
 import re
 from codecs import encode, decode
+import logging
 
 from .download import BDownloader
 
@@ -76,6 +77,8 @@ def arg_parser():
 
 
 def main():
+    logging.basicConfig()
+
     args = arg_parser().parse_args()
 
     files = [abspath(normpath(join(args.dir, f))) for f in args.output]

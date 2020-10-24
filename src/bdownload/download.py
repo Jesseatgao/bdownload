@@ -1,4 +1,4 @@
-#from __future__ import absolute_import
+from __future__ import absolute_import
 from __future__ import division
 from __future__ import unicode_literals
 
@@ -33,8 +33,7 @@ def retry(exceptions, tries=10, backoff_factor=0.1, logger=None):
         logger: Logger to use. None to disable logging.
     """
     if logger is None:
-        logging.basicConfig()
-        logger = logging.getLogger()
+        logger = logging.getLogger(__name__)
 
     def deco_retry(f):
         NTRIES = 7
@@ -300,8 +299,7 @@ class BDownloader(object):
         self._dl_ctx = {"total_size": 0, "accurate": True, "files": {}, "futures": {}}  # see CTX structure definition
 
         if logger is None:
-            logging.basicConfig()
-            logger = logging.getLogger()
+            logger = logging.getLogger(__name__)
         self._logger = logger
 
         self.min_split_size = min_split_size
