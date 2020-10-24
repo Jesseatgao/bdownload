@@ -39,7 +39,7 @@ class TestMultiSourceDownload(unittest.TestCase):
     def setUpClass(cls):
         cls.tmp_dir = tempfile.mkdtemp(prefix='bdl-')
 
-        cls.files = list(FILES)
+        cls.files = FILES
         for f in cls.files:
             f['file'] = os.path.join(cls.tmp_dir, f['file'])
 
