@@ -4,19 +4,29 @@ from __future__ import unicode_literals
 
 import time
 import random
-from functools import wraps, reduce
+from functools import wraps
 import logging
 import sys
 import os
 import threading
-from concurrent.futures import ThreadPoolExecutor, wait
+from concurrent.futures import ThreadPoolExecutor  # ,wait
 from math import trunc
+
+try:
+  from pathlib import Path
+except ImportError:
+  from pathlib2 import Path
 
 import requests
 from requests.adapters import HTTPAdapter
 from requests.packages.urllib3.util.retry import Retry
 from requests import Session
 from clint.textui import progress
+
+
+here = os.path.dirname(os.path.abspath(__file__))
+with open(os.path.join(here, 'VERSION'), mode='r') as fd:
+    __version__ = fd.read().strip()
 
 
 def retry(exceptions, tries=10, backoff_factor=0.1, logger=None):
@@ -69,9 +79,9 @@ class RequestsSessionWrapper(Session):
     def __init__(self):
         super(RequestsSessionWrapper, self).__init__()
 
+        default_user_agent = 'bdownload/{}'.format(__version__)
         headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:69.0) Gecko/20100101 Firefox/69.0',
-            # 'User-Agent': 'Mozilla/5.0 (iPad; CPU OS 12_2 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148',
+            'User-Agent': default_user_agent,
             'Accept-Encoding': 'gzip, identity, deflate, br, *'
         }
         self.headers = headers
@@ -87,7 +97,7 @@ def requests_retry_session(
         status_forcelist=(500, 502, 504),
         session=None,
         num_pools=20,
-        pool_maxsize=50
+        pool_maxsize=20
 ):
     """
     Ref: https://www.peterbe.com/plog/best-practice-with-retries-with-requests
@@ -103,7 +113,7 @@ def requests_retry_session(
         backoff_factor=backoff_factor,
         status_forcelist=status_forcelist,
     )
-    adapter = HTTPAdapter(max_retries=max_retries, pool_connections=num_pools, pool_maxsize=pool_maxsize)
+    adapter = HTTPAdapter(max_retries=max_retries, pool_connections=num_pools, pool_maxsize=pool_maxsize, pool_block=True)
     session.mount('http://', adapter)
     session.mount('https://', adapter)
     return session
@@ -541,7 +551,7 @@ class BDownloader(object):
                     self._logger.error("'{}' is not a valid pathname. Please make sure it ends with a filename.".format(path_name))
                     return -1
                 if head and not os.path.exists(head):
-                    os.makedirs(head, exist_ok=True)
+                    Path(head).mkdir(parents=True, exist_ok=True)
 
                 with open(path_name, mode='w') as _:
                     pass
@@ -616,4 +626,5 @@ class BDownloader(object):
         self.executor.shutdown()
 
         self.stop = True
-        self.mgmnt_thread.join()
+        if self.mgmnt_thread is not None:
+            self.mgmnt_thread.join()

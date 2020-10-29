@@ -7,7 +7,7 @@ import hashlib
 from shutil import rmtree
 from random import sample, seed
 
-from bdownload import BDownloader
+import bdownload
 
 
 FILES = [
@@ -64,7 +64,7 @@ class TestBDownloader(unittest.TestCase):
         seed()
         cls.files = [FILES[idx] for idx in sample(range(len(FILES)), NUM_SAMPLES)]
         for f in cls.files:
-            f['file'] = os.path.join(cls.tmp_dir, f['file'])
+            f['file'] = os.path.join(cls.tmp_dir, 'notyet', f['file'])
 
     @classmethod
     def tearDownClass(cls):
@@ -78,7 +78,7 @@ class TestBDownloader(unittest.TestCase):
 
         ua = 'Mozilla/5.0 (iPad; CPU OS 12_2 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148'
 
-        with BDownloader(max_workers=20, user_agent=ua, progress='mill') as downloader:
+        with bdownload.BDownloader(max_workers=20, user_agent=ua, progress='mill') as downloader:
             downloader.download(file_path, file_url)
 
         hashf = hashlib.sha1()
@@ -92,7 +92,7 @@ class TestBDownloader(unittest.TestCase):
         fs = self.files[:-1]
         file_urls = [(f["file"], f["url"]) for f in fs]
 
-        with BDownloader(max_workers=20, progress='mill') as downloader:
+        with bdownload.BDownloader(max_workers=20, progress='mill') as downloader:
             downloader.downloads(file_urls)
 
         for f in fs:

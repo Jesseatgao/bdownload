@@ -1,6 +1,6 @@
 from setuptools import setup, find_packages
 
-with open('VERSION', mode='r') as fd:
+with open('src/bdownload/VERSION', mode='r') as fd:
     version = fd.read().strip()
     
 with open('README.md', mode='r') as fd:
@@ -32,7 +32,8 @@ setup(
         'requests[socks]',
         'requests',
         'clint',
-        'futures; python_version == "2.7"'
+        'futures; python_version == "2.7"',
+        'pathlib2; python_version == "2.7"'
     ],
     setup_requires=[],
     cmdclass=cmd_classes,

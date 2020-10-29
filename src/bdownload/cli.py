@@ -9,12 +9,15 @@ import logging
 
 from .download import BDownloader
 
-DEFAULT_MAX_WORKER = 20
-DEFAULT_MIN_SPLIT_SIZE = 1024*1024  # 1M
-DEFAULT_CHUNK_SIZE = 1024*100  # 100K
+
+DEFAULT_MAX_WORKER = 20         # number of worker threads
+DEFAULT_MIN_SPLIT_SIZE = "1M"   # file split size in bytes[1M = 1024*1024]
+DEFAULT_CHUNK_SIZE = "100K"     # every request range size in bytes[1K = 1024]
+DEFAULT_NUM_POOLS = 20          # number of connection pools
+DEFAULT_POOL_SIZE = 20          # max number of connections in the pool
 
 
-def dec_raw_tab_separated_urls(url):
+def _dec_raw_tab_separated_urls(url):
     """decode a *raw* URL string that may consist of multiple escaped TAB-separated URLs
     `url` examples:
         r'https://fakewebsite-01.com/downloads/soulbody4ct.pdf\thttps://fakewebsite-02.com/archives/soulbody4ct.pdf'
@@ -26,52 +29,64 @@ def dec_raw_tab_separated_urls(url):
     return decode(encode(url, 'latin-1'), 'unicode_escape')
 
 
-def normalize_bytes_num(bytes_num):
+def _normalize_bytes_num(bytes_num):
     try:
-        matched = normalize_bytes_num.regex.match(bytes_num)
+        matched = _normalize_bytes_num.regex.match(bytes_num)
     except AttributeError:
-        normalize_bytes_num.regex = re.compile('^[1-9][0-9]*[kKmM]?$')
-        matched = normalize_bytes_num.regex.match(bytes_num)
+        _normalize_bytes_num.regex = re.compile('^[1-9][0-9]*[kKmM]?$')
+        matched = _normalize_bytes_num.regex.match(bytes_num)
 
     if not matched:
-        msg = '{!r} is invalid, use, for example, 1024, 10K, or 2M instead'.format(bytes_num)
+        msg = '{!r} is not a valid integer number, use, for example, 1024, 10K, or 2M instead'.format(bytes_num)
         raise ArgumentTypeError(msg)
 
     try:
         size = int(bytes_num)
     except ValueError:
-        size = int(bytes_num[:-1])*1024*1024 if bytes_num[-1] in 'mM' else int(bytes_num[:-1])*1024
+        size = int(bytes_num[:-1]) << 20 if bytes_num[-1] in 'mM' else int(bytes_num[:-1]) << 10
 
     return size
 
 
-def arg_parser():
+def _arg_parser():
     parser = ArgumentParser()
 
     parser.add_argument('-o', '--output', nargs='+', required=True, dest='output',
                         help='one or more file names, e.g. `-o file1.zip ~/file2.tgz`, paired with URLs specified by --url')
-    parser.add_argument('--url', nargs='+', required=True, dest='url', type=dec_raw_tab_separated_urls,
+
+    parser.add_argument('--url', nargs='+', required=True, dest='url', type=_dec_raw_tab_separated_urls,
                         help='URL(s) for the files to be downloaded, '
-                             'which might be TAB-separated URIs pointing to the same file, '
+                             'which might be TAB-separated URLs pointing to the same file, '
                              'e.g. `--url https://yoursite.net/yourfile.7z`, '
                              '`--url "https://yoursite01.net/thefile.7z\\thttps://yoursite02.com/thefile.7z"`, '
-                             'or `--url "http://foo.cc/file1.zip" "http://bar.cc/file2.tgz\\thttp://bar2.cc/file2.tgz"`'
-                        )
+                             'or `--url "http://foo.cc/file1.zip" "http://bar.cc/file2.tgz\\thttp://bar2.cc/file2.tgz"`')
+
     parser.add_argument('-D', '--dir', default='.', dest='dir', help='path to save the downloaded files')
+
     parser.add_argument('-p', '--proxy', dest='proxy', default=None,
                         help='proxy in the form of "http://[user:pass@]host:port" or "socks5://[user:pass@]host:port" ')
+
     parser.add_argument('-n', '--max-workers', dest='max_workers', default=DEFAULT_MAX_WORKER, type=int,
-                        help='number of worker threads')
-    parser.add_argument('-k', '--min-split-size', dest='min_split_size', default=DEFAULT_MIN_SPLIT_SIZE,
-                        type=normalize_bytes_num, help='file split size, "1048576, 1024K or 2M" for example')
-    parser.add_argument('-s', '--chunk-size', dest='chunk_size', default=DEFAULT_CHUNK_SIZE, type=normalize_bytes_num,
-                        help='every request range size, "10240, 10K or 1M" for example')
+                        help='number of worker threads [default: {}]'.format(DEFAULT_MAX_WORKER))
+
+    parser.add_argument('-k', '--min-split-size', dest='min_split_size', default=DEFAULT_MIN_SPLIT_SIZE, type=_normalize_bytes_num,
+                        help='file split size in bytes, "1048576, 1024K or 2M" for example [default: {}]'.format(DEFAULT_MIN_SPLIT_SIZE))
+
+    parser.add_argument('-s', '--chunk-size', dest='chunk_size', default=DEFAULT_CHUNK_SIZE, type=_normalize_bytes_num,
+                        help='every request range size in bytes, "10240, 10K or 1M" for example [default: {}]'.format(DEFAULT_CHUNK_SIZE))
+
     parser.add_argument('-e', '--cookie', dest='cookie', default=None,
                         help='cookies in the form of "cookie_key=cookie_value cookie_key2=cookie_value2"')
+
     parser.add_argument('--user-agent', dest='user_agent', default=None, help='custom user agent')
+
     parser.add_argument('-P', '--progress', dest='progress', default='mill', choices=['mill', 'bar'], help='progress indicator')
-    parser.add_argument('--num-pools', dest='num_pools', default=20, type=int, help='number of connection pools')
-    parser.add_argument('--pool-size', dest='pool_size', default=50, type=int, help='max number of connections in the pool')
+
+    parser.add_argument('--num-pools', dest='num_pools', default=DEFAULT_NUM_POOLS, type=int,
+                        help='number of connection pools [default: {}]'.format(DEFAULT_NUM_POOLS))
+
+    parser.add_argument('--pool-size', dest='pool_size', default=DEFAULT_POOL_SIZE, type=int,
+                        help='max number of connections in the pool [default: {}]'.format(DEFAULT_POOL_SIZE))
 
     return parser
 
@@ -79,7 +94,7 @@ def arg_parser():
 def main():
     logging.basicConfig()
 
-    args = arg_parser().parse_args()
+    args = _arg_parser().parse_args()
 
     files = [abspath(normpath(join(args.dir, f))) for f in args.output]
     file_urls = list(zip(files, args.url))
