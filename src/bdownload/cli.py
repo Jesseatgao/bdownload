@@ -80,7 +80,8 @@ def _arg_parser():
 
     parser.add_argument('--user-agent', dest='user_agent', default=None, help='custom user agent')
 
-    parser.add_argument('-P', '--progress', dest='progress', default='mill', choices=['mill', 'bar'], help='progress indicator')
+    parser.add_argument('-P', '--progress', dest='progress', default='mill', choices=['mill', 'bar'],
+                        help='progress indicator [default: mill]')
 
     parser.add_argument('--num-pools', dest='num_pools', default=DEFAULT_NUM_POOLS, type=int,
                         help='number of connection pools [default: {}]'.format(DEFAULT_NUM_POOLS))

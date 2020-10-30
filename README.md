@@ -21,20 +21,20 @@ A multi-threaded aria2-like batch file downloading library for Python
 
 #### Importing
 
-`from bdownload import BDownloader`
+    `from bdownload import BDownloader`
 
-or
+            or
 
-`import bdownload`
+    `import bdownload`
 
-#### Signatures:
+#### Signatures
 
 `
 class bdownload.BDownloader(max_workers=None, min_split_size=1024*1024, chunk_size=1024*100, proxy=None, cookies=None,
                             user_agent=None, logger=None, progress='mill', num_pools=20, pool_maxsize=20)
 `
 
-  Create and initialize a `BDownloader` object for executing download jobs.
+    Create and initialize a `BDownloader` object for executing download jobs.
   
   * The `max_workers` parameter specifies the number of the parallel downloading threads, whose default value is determined by _#num_of_processor * 5_.
   
@@ -44,13 +44,13 @@ class bdownload.BDownloader(max_workers=None, min_split_size=1024*1024, chunk_si
   
   * `proxy` supports both HTTP and SOCKS proxies in the form of _http://[user:pass@]host:port_ and _socks5://[user:pass@]host:port_, respectively.
   
-  * If `cookies` needs to be set, it must take the form of _cookie_key=cookie_value_, with multiple pairs separated by space character if applicable.
+  * If `cookies` needs to be set, it must take the form of _cookie_key=cookie_value_, with multiple pairs separated by space character if applicable, e.g. '_key1=val1 key2=val2_'.
   
-  * When `user_agent` is not given, it will default to _bdownload/VERSION_, with _VERSION_ being replaced by the package's version number.
+  * When `user_agent` is not given, it will default to '_bdownload/VERSION_', with _VERSION_ being replaced by the package's version number.
   
   * The `logger` parameter specifies an event logger. If `logger` is not `None`, it must be an object of type `logging.Logger`.  Otherwise, it will use a default module-level logger returned by `logging.getLogger(__name__)`.
   
-  * `progress` determines the style of the progress bar displayed while downloading files. Possible values are _mill_ and _bar_, and _mill_ is the default.
+  * `progress` determines the style of the progress bar displayed while downloading files. Possible values are `'mill'` and `'bar'`, and `'mill'` is the default.
   
   * The `num_pools` parameter has the same meaning as `num_pools` in `urllib3.PoolManager` and will eventually be passed to it. Specifically, `num_pools` specifies the number of connection pools to cache.
   
@@ -60,15 +60,15 @@ class bdownload.BDownloader(max_workers=None, min_split_size=1024*1024, chunk_si
 BDownloader.downloads(path_urls)
 `
 
-  Submit multiple downloading jobs at a time.
+    Submit multiple downloading jobs at a time.
   
-  * `path_urls` accepts a list of tuples of the form (_path_, _url_), where _path_ should be a pathname, probably prefixed with absolute or relative paths, and _url_ should be a URL string, which may consist of multiple TAB-separated URLs pointing to the same file. A valid `path_urls`, for example, could be _[('/opt/files/bar.tar.bz2', 'https://foo.cc/bar.tar.bz2'), ('./xfile.7z', 'https://bar.cc/xfile.7z\thttps://foo.cc/xfile.7z')]_.
+  * `path_urls` accepts a list of tuples of the form (_path_, _url_), where _path_ should be a pathname, probably prefixed with absolute or relative paths, and _url_ should be a URL string, which may consist of multiple TAB-separated URLs pointing to the same file. A valid `path_urls`, for example, could be [('_/opt/files/bar.tar.bz2_', '_https://foo.cc/bar.tar.bz2_'), ('_./xfile.7z_', '_https://bar.cc/xfile.7z\thttps://foo.cc/xfile.7z_')].
 
 `
 BDownloader.download(path, url)
 `
 
-  Submit a single downloading job.
+    Submit a single downloading job.
   
   * Similar to `BDownloader.downloads()`, in fact it is just a special case of which, with [(_path_, _url_)] composed of the specified parameters as the input.
 
@@ -76,7 +76,7 @@ BDownloader.download(path, url)
 BDownloader.close()
 `
 
-  Wait for the jobs done and perform the cleanup. 
+    Wait for the jobs done and perform the cleanup. 
 
 #### Examples
 
@@ -173,59 +173,62 @@ if __name__ == '__main__':
 ```
 ### Usage: as a command-line script
 
-    bdownload [-h] -o OUTPUT [OUTPUT ...] --url URL [URL ...] [-D DIR]
-                 [-p PROXY] [-n MAX_WORKERS] [-k MIN_SPLIT_SIZE]
-                 [-s CHUNK_SIZE] [-e COOKIE] [--user-agent USER_AGENT]
-                 [-P {mill,bar}] [--num-pools NUM_POOLS]
-                 [--pool-size POOL_SIZE]
+#### Synopsis
 
-Explanation:
+```
+bdownload [-h] -o OUTPUT [OUTPUT ...] --url URL [URL ...] [-D DIR]
+                [-p PROXY] [-n MAX_WORKERS] [-k MIN_SPLIT_SIZE]
+                [-s CHUNK_SIZE] [-e COOKIE] [--user-agent USER_AGENT]
+                [-P {mill,bar}] [--num-pools NUM_POOLS]
+                [--pool-size POOL_SIZE]
+```
 
--o OUTPUT [OUTPUT ...], --output OUTPUT [OUTPUT ...]
+#### Description
 
-  one or more file names, e.g. `-o file1.zip ~/file2.tgz`, paired with URLs specified by --url
+`-o OUTPUT [OUTPUT ...], --output OUTPUT [OUTPUT ...]`
 
---url URL [URL ...]
+    one or more file names, e.g. `-o file1.zip ~/file2.tgz`, paired with URLs specified by `--url`
 
-  URL(s) for the files to be downloaded, which might be TAB-separated URLs pointing to the same file, e.g. `--url https://yoursite.net/yourfile.7z`, `--url "https://yoursite01.net/thefile.7z\thttps://yoursite02.com/thefile.7z"`, or `--url "http://foo.cc/file1.zip"  "http://bar.cc/file2.tgz\thttp://bar2.cc/file2.tgz"`
+`--url URL [URL ...]`
 
--D DIR, --dir DIR
+    URL(s) for the files to be downloaded, which might be TAB-separated URLs pointing to the same file, e.g. `--url https://yoursite.net/yourfile.7z`, `--url "https://yoursite01.net/thefile.7z\thttps://yoursite02.com/thefile.7z"`, or `--url "http://foo.cc/file1.zip"  "http://bar.cc/file2.tgz\thttp://bar2.cc/file2.tgz"`
 
-  path to save the downloaded files
+`-D DIR, --dir DIR`
 
--p PROXY, --proxy PROXY
+    path to save the downloaded files
 
-  proxy in the form of "http://[user:pass@]host:port" or "socks5://[user:pass@]host:port"
+`-p PROXY, --proxy PROXY`
 
--n MAX_WORKERS, --max-workers MAX_WORKERS
+    proxy in the form of "http://[user:pass@]host:port" or "socks5://[user:pass@]host:port"
 
-  number of worker threads [default: 20]
+`-n MAX_WORKERS, --max-workers MAX_WORKERS`
 
--k MIN_SPLIT_SIZE, --min-split-size MIN_SPLIT_SIZE
+    number of worker threads [default: 20]
 
-  file split size in bytes, "1048576, 1024K or 2M" for example [default: 1M]
+`-k MIN_SPLIT_SIZE, --min-split-size MIN_SPLIT_SIZE`
 
--s CHUNK_SIZE, --chunk-size CHUNK_SIZE
+    file split size in bytes, "1048576, 1024K or 2M" for example [default: 1M]
 
-  every request range size in bytes, "10240, 10K or 1M" for example [default: 100K]
+`-s CHUNK_SIZE, --chunk-size CHUNK_SIZE`
 
--e COOKIE, --cookie COOKIE
+    every request range size in bytes, "10240, 10K or 1M" for example [default: 100K]
 
-  cookies in the form of "cookie_key=cookie_value cookie_key2=cookie_value2"
+`-e COOKIE, --cookie COOKIE`
 
---user-agent USER_AGENT
+    cookies in the form of "cookie_key=cookie_value cookie_key2=cookie_value2"
 
-  custom user agent
+`--user-agent USER_AGENT`
 
--P {mill,bar}, --progress {mill,bar}
+    custom user agent
 
-  progress indicator
+`-P {mill,bar}, --progress {mill,bar}`
 
---num-pools NUM_POOLS
+    progress indicator [default: mill]
 
-  number of connection pools [default: 20]
+`--num-pools NUM_POOLS`
 
---pool-size POOL_SIZE
+    number of connection pools [default: 20]
 
-  max number of connections in the pool [default: 20]
+`--pool-size POOL_SIZE`
 
+    max number of connections in the pool [default: 20]
