@@ -1,9 +1,10 @@
 from setuptools import setup, find_packages
+import codecs
 
 with open('src/bdownload/VERSION', mode='r') as fd:
     version = fd.read().strip()
     
-with open('README.md', mode='r') as fd:
+with codecs.open('README.md', 'r', 'utf-8') as fd:
     long_description = fd.read()
     
 # Extends the Setuptools `clean` command
