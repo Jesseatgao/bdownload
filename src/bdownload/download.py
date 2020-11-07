@@ -11,11 +11,19 @@ import os
 import threading
 from concurrent.futures import ThreadPoolExecutor  # ,wait
 from math import trunc
+import re
 
 try:
   from pathlib import Path
+
+  from urllib.parse import unquote, urlparse
+
+  unichr = chr
 except ImportError:
   from pathlib2 import Path
+
+  from urllib import unquote
+  from urlparse import urlparse
 
 import requests
 from requests.adapters import HTTPAdapter
@@ -29,7 +37,7 @@ with open(os.path.join(here, 'VERSION'), mode='r') as fd:
     __version__ = fd.read().strip()
 
 
-def retry(exceptions, tries=10, backoff_factor=0.1, logger=None):
+def retry(exceptions, tries=3, backoff_factor=0.1, logger=None):
     """
     Retry calling the decorated function using an exponential backoff.
     Ref: http://www.saltycrane.com/blog/2009/11/trying-out-retry-decorator-python/
@@ -46,17 +54,16 @@ def retry(exceptions, tries=10, backoff_factor=0.1, logger=None):
         logger = logging.getLogger(__name__)
 
     def deco_retry(f):
-        NTRIES = 7
 
         @wraps(f)
         def f_retry(*args, **kwargs):
             ntries = 0
-            while tries > ntries:
+            while ntries < tries:
                 try:
                     return f(*args, **kwargs)
                 except exceptions as e:
                     ntries += 1
-                    steps = random.randrange(1, 2**(ntries % NTRIES))
+                    steps = random.randrange(1, 2**ntries)
                     backoff = steps * backoff_factor
 
                     logger.warning('{!r}, Retrying {}/{} in {:.2f} seconds...'.format(e, ntries, tries, backoff))
@@ -92,7 +99,7 @@ class RequestsSessionWrapper(Session):
 
 
 def requests_retry_session(
-        retries=7,
+        retries=2,
         backoff_factor=0.2,
         status_forcelist=(500, 502, 504),
         session=None,
@@ -132,6 +139,43 @@ def _build_cookiejar_from_kvp(key_values):
             cookiejar.set(key, value)
 
         return cookiejar
+
+
+def unquote_unicode(string):
+    """https://stackoverflow.com/questions/300445"""
+    try:
+        if isinstance(string, unicode):
+            string = string.encode('utf-8')
+        string = unquote(string)  # handle two-digit %hh components first
+        parts = string.split(u'%u'.encode('utf-8'))
+    except NameError:  # python 3.x has no type called `unicode`
+        string = unquote(string)  # handle two-digit %hh components first
+        parts = string.split('%u')
+
+    if len(parts) == 1:
+        return string
+    res = [parts[0]]
+    for part in parts[1:]:
+        try:
+            digits = part[:4].lower()
+            if len(digits) < 4:
+                raise ValueError
+            ch = unichr(int(digits, 16))
+            if (
+                not res[-1] and
+                u'\uDC00' <= ch <= u'\uDFFF' and
+                u'\uD800' <= res[-2] <= u'\uDBFF'
+            ):
+                # UTF-16 surrogate pair, replace with single non-BMP codepoint
+                res[-2] = (res[-2] + ch).encode(
+                    'utf-16', 'surrogatepass').decode('utf-16')
+            else:
+                res.append(ch)
+            res.append(part[4:])
+        except ValueError:
+            res.append(u'%u')
+            res.append(part)
+    return u''.join(res)
 
 
 class MillProgress(object):
@@ -317,9 +361,8 @@ class BDownloader(object):
 
         self.progress = progress
         if self.progress not in ('bar', 'mill'):
-            self._logger.error("Error: invalid Aria2Cg progress parameter '{}',\
-             default to 'bar' if possible, 'mill' otherwise".format(self.progress))
-            self.progress = 'bar'
+            self._logger.error("Error: invalid ProgressBar parameter '{}', default to 'mill'".format(self.progress))
+            self.progress = 'mill'
 
     @staticmethod
     def calc_req_ranges(req_len, split_size, req_start=0):
@@ -366,14 +409,16 @@ class BDownloader(object):
                 req_range_new = "bytes={}-{}".format(start, end)
                 headers = {"Range": req_range_new}
                 try:
-                    r = self.requester.get(url, headers=headers, allow_redirects=True)
-                    # r.raise_for_status()
+                    r = self.requester.get(url, headers=headers, allow_redirects=True, stream=True)
+                    r.raise_for_status()
                     if r.status_code == requests.codes.partial:
-                        fd.write(r.content)
-                        ctx_range['offset'] += len(r.content)
+                        for chunk in r.iter_content(chunk_size=None):
+                            ctx_range['offset'] += len(chunk)
+                            fd.write(chunk)
                     else:
-                        return -1
-                except Exception as e:
+                        msg = "Unexpected status code: {}, which should have been {}.".format(r.status_code, requests.codes.partial)
+                        raise requests.RequestException(msg)
+                except requests.RequestException as e:
                     self._logger.error("Error while downloading {}(range:{}-{}/{}-{}): '{}'".format(
                         os.path.basename(path_name), range_start, range_end, ctx_range['start'], ctx_range['end'], str(e)))
                     raise
@@ -404,8 +449,8 @@ class BDownloader(object):
                     r.raise_for_status()
                     if r.status_code == status_code:  # in (requests.codes.ok, requests.codes.partial)
                         for chunk in r.iter_content(chunk_size=None):
-                            fd.write(chunk)
                             ctx_range['offset'] += len(chunk)
+                            fd.write(chunk)
 
                             if headers:
                                 range_start = ctx_range['start'] + ctx_range['offset']
@@ -456,75 +501,152 @@ class BDownloader(object):
                     ctx_url['refcnt'] += 1
                     yield [url]
 
-    def _build_ctx_internal(self, path_name, url):
-        file_name = os.path.basename(path_name)
-        urls = url.split('\t')  # maybe TAB-separated URLs
-        ctx_file = self._dl_ctx['files'][path_name] = {}
-        ctx_file['length'] = 0
-        ctx_file['resumable'] = False
-        ctx_file['urls'] = {}
-        ctx_file['ranges'] = {}
-
-        ranges = []
-
-        for idx, url in enumerate(urls):
-            ctx_url = ctx_file['urls'][url] = {}
-            ctx_url['accept_ranges'] = "none"
-            ctx_url['refcnt'] = 0
-
-            r = self.requester.get(url, allow_redirects=True, stream=True)
-            if r.status_code == requests.codes.ok:
-                file_len = int(r.headers.get('Content-Length', 0))
-                if file_len:
-                    if not ctx_file['length']:
-                        ctx_file['length'] = file_len
-                    else:
-                        if file_len != ctx_file['length']:
-                            self._logger.warning("File sizes of '{}' from '{}' don't match!".format(
-                                file_name, 'and'.join(urls[:idx+1])
-                            ))
-
-                accept_ranges = r.headers.get('Accept-Ranges')
-                if accept_ranges and accept_ranges != "none":
-                    ctx_url['accept_ranges'] = accept_ranges
-                    assert accept_ranges == "bytes"
-
-                    if not ctx_file['resumable']:
-                        ctx_file['resumable'] = True
-            else:
-                self._logger.warning("Status code: {}. Error while trying to determine the size of {} using '{}'".format(
-                    r.status_code, file_name, url
-                ))
-
-            r.close()
-
-        self._dl_ctx['total_size'] += ctx_file['length']
-        if not ctx_file['length']:
-            self._dl_ctx['accurate'] = False
-
-        # calculate request ranges
-        if ctx_file['length'] and ctx_file['resumable']:  # rewrite as `self._is_parallel_downloadable` for clarity
-            ranges = self.calc_req_ranges(ctx_file['length'], self.min_split_size, 0)
+    @staticmethod
+    def _get_fname_from_hdr(content_disposition):
+        """"Get the file name from the Content-Disposition field of the HTTP header
+        Ref: https://stackoverflow.com/questions/37060344
+        """
+        fname = re.findall(r"filename\*=([^;]+)", content_disposition, flags=re.IGNORECASE)
+        if not fname:
+            fname = re.findall("filename=([^;]+)", content_disposition, flags=re.IGNORECASE)
+        if "utf-8''" in fname[0].lower():
+            fname = re.sub("utf-8''", '', fname[0], flags=re.IGNORECASE)
+            fname = unquote_unicode(fname)
         else:
-            ranges.append((0, None))
+            fname = fname[0]
 
-        iter_url = self._pick_file_url(path_name)
-        for start, end in ranges:
-            req_range = "bytes={}-{}".format(start, end)
-            ctx_range = ctx_file['ranges'][req_range] = {}
-            ctx_range.update({
-                'start': start,
-                'end': end,
-                'offset': 0,
-                'start_time': 0,
-                'rt_dl_speed': 0,
-                'url': next(iter_url)
-            })
+        return fname.strip().strip('"')
+
+    @staticmethod
+    def _get_fname_from_url(url):
+        parsed = urlparse(url)
+        unquoted_path = unquote_unicode(parsed.path)
+        fname = os.path.basename(unquoted_path)
+        if not fname:
+            fn_path = '_'.join(unquoted_path.replace('/', ' ').split())
+            fn_netloc = parsed.netloc.replace(':', '_')
+            fname = fn_netloc + '-' + fn_path
+
+        # limit the length of the filename to 250
+        return fname[-250:].strip()
+
+    def _build_ctx_internal(self, path_name, url):
+        # check whether `path_name` refers to a file (perhaps prefixed with a path) or a directory.
+        # If it is a directory, then a file name should be determined through the `url`.
+        #
+        path_url = (path_name, url)
+
+        if not path_name:
+            path_name = '.'
+        if url is None:
+            url = ''
+
+        path_head, path_tail = os.path.split(path_name)
+        if not path_tail or os.path.isdir(path_name):
+            file_name = None
+            file_path = path_name
+        else:
+            file_name = path_tail
+            file_path = path_head
+
+        urls = url.split('\t')  # maybe TAB-separated URLs
+        ctx_file = {'length': 0, 'resumable': False, 'urls': {}, 'ranges': {}}
+
+        active_urls = []
+        downloadable = False  # Must have at least one active URL to download the file
+        for _, url in enumerate(urls):
+            try:
+                r = self.requester.get(url, allow_redirects=True, stream=True)
+                if r.status_code == requests.codes.ok:
+                    file_len = int(r.headers.get('Content-Length', 0))
+                    if file_len:
+                        if not ctx_file['length']:
+                            ctx_file['length'] = file_len
+                        else:
+                            if file_len != ctx_file['length']:
+                                self._logger.error("File size obtained from '{}' happened to mismatch with that from others, downloading will continue but the downloaded file may be incorrect!".format(
+                                    url))
+
+                                r.close()
+                                continue
+
+                    ctx_url = ctx_file['urls'][url] = {}
+                    ctx_url['accept_ranges'] = "none"
+                    ctx_url['refcnt'] = 0
+
+                    accept_ranges = r.headers.get('Accept-Ranges')
+                    if "bytes" == accept_ranges:
+                        ctx_url['accept_ranges'] = accept_ranges
+                        ctx_file['resumable'] = True
+
+                    content_disposition = r.headers.get('Content-Disposition')
+                    if content_disposition and not file_name:
+                        file_name = self._get_fname_from_hdr(content_disposition)
+
+                    downloadable = True
+                    active_urls.append(url)
+                else:
+                    self._logger.warning("Status code: {}. Error while trying to determine the file size using '{}'".format(
+                        r.status_code, url
+                    ))
+
+                r.close()
+            except requests.RequestException as e:
+                self._logger.error("Error while trying to determine the file size using '{}': '{}'".format(url, str(e)))
+
+        if downloadable:
+            if not file_name:
+                file_name = self._get_fname_from_url(active_urls[0])
+
+            file_path_name = os.path.abspath(os.path.join(file_path, file_name))
+            try:
+                if file_path and not os.path.exists(file_path):
+                    Path(file_path).mkdir(parents=True, exist_ok=True)
+                with open(file_path_name, mode='w') as _:
+                    pass
+            except OSError as e:
+                self._logger.error("OS error number {}: '{}'".format(e.errno, e.strerror))
+                raise
+
+            self._dl_ctx['files'][file_path_name] = ctx_file
+
+            self._dl_ctx['total_size'] += ctx_file['length']
+            if not ctx_file['length']:
+                self._dl_ctx['accurate'] = False
+
+            # calculate request ranges
+            if self._is_parallel_downloadable(file_path_name):
+                ranges = self.calc_req_ranges(ctx_file['length'], self.min_split_size, 0)
+            else:
+                ranges = [(0, None)]
+
+            iter_url = self._pick_file_url(file_path_name)
+            for start, end in ranges:
+                req_range = "bytes={}-{}".format(start, end)
+                ctx_range = ctx_file['ranges'][req_range] = {}
+                ctx_range.update({
+                    'start': start,
+                    'end': end,
+                    'offset': 0,
+                    'start_time': 0,
+                    'rt_dl_speed': 0,
+                    'url': next(iter_url)
+                })
+
+            path_url = (file_path_name, '\t'.join(active_urls))
+
+        return downloadable, path_url
 
     def _build_ctx(self, path_urls):
-        for path_name, urls in path_urls:
-            if self._build_ctx_internal(path_name, urls):
-                return -1
+        built, failed = [], []
+        for path_name, url in path_urls:
+            downloadable, path_url = self._build_ctx_internal(path_name, url)
+            if downloadable:
+                built.append(path_url)
+            else:
+                failed.append(path_url)
+
+        return built, failed
 
     def _submit_dl_tasks(self, path_urls):
         for path_name, _ in path_urls:
@@ -541,23 +663,6 @@ class BDownloader(object):
                     "file": path_name,
                     "range": req_range
                 }
-
-    def _create_empty_downloads(self, path_urls):
-        try:
-            for path_name, _ in path_urls:
-                # check if 'path_name' refers to a valid FILE (perhaps prefixed with a path), not a directory
-                head, tail = os.path.split(path_name)
-                if not tail or os.path.isdir(path_name):
-                    self._logger.error("'{}' is not a valid pathname. Please make sure it ends with a filename.".format(path_name))
-                    return -1
-                if head and not os.path.exists(head):
-                    Path(head).mkdir(parents=True, exist_ok=True)
-
-                with open(path_name, mode='w') as _:
-                    pass
-        except OSError as e:
-            self._logger.error("OS error number {}: '{}'".format(e.errno, e.strerror))
-            return -1
 
     def _is_all_done(self):
         return all(f.done() for f in self._dl_ctx['futures'])
@@ -599,17 +704,18 @@ class BDownloader(object):
         """path_urls: [('path1', 'url1\turl2\turl3'),('path2', 'url4'),]
         """
         for chunk_path_urls in self.list_split(path_urls, chunk_size=2):
-            if self._create_empty_downloads(chunk_path_urls) or self._build_ctx(chunk_path_urls):
-                self._logger.error("Download file(s) failed.")
-                sys.exit(-1)
+            active_path_urls, failed_path_urls = self._build_ctx(chunk_path_urls)
+            if active_path_urls:
+                if self.mgmnt_thread is None:
+                    self.mgmnt_thread = threading.Thread(target=self._manage_tasks)
+                    self.mgmnt_thread.start()
 
-            self._submit_dl_tasks(chunk_path_urls)
+                self._submit_dl_tasks(active_path_urls)
+
+            if failed_path_urls:
+                self._logger.error('Failed to download: {!r}'.format(failed_path_urls))
 
         #done, not_done = wait(self._dl_ctx["futures"].keys())
-
-        if self.mgmnt_thread is None:
-            self.mgmnt_thread = threading.Thread(target=self._manage_tasks)
-            self.mgmnt_thread.start()
 
     def download(self, path_name, url):
         return self.downloads([(path_name, url)])
