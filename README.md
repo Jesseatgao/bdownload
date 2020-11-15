@@ -3,7 +3,7 @@
 [![Build Status](https://travis-ci.com/Jesseatgao/bdownload.svg?branch=master)](https://travis-ci.com/Jesseatgao/bdownload)
 [![Supported Versions](https://img.shields.io/pypi/pyversions/bdownload.svg)](https://pypi.org/project/bdownload)
 
-A multi-threaded aria2-like batch file downloading library for Python
+A multi-threaded and multi-source aria2-like batch file downloading library for Python
 
 ### Installation
 
@@ -62,7 +62,7 @@ BDownloader.downloads(path_urls)
 
     Submit multiple downloading jobs at a time.
   
-  * `path_urls` accepts a list of tuples of the form (_path_, _url_), where _path_ should be a pathname, probably prefixed with absolute or relative paths, and _url_ should be a URL string, which may consist of multiple TAB-separated URLs pointing to the same file. A valid `path_urls`, for example, could be [('_/opt/files/bar.tar.bz2_', '_https://foo.cc/bar.tar.bz2_'), ('_./xfile.7z_', '_https://bar.cc/xfile.7z\thttps://foo.cc/xfile.7z_')].
+  * `path_urls` accepts a list of tuples of the form (_path_, _url_), where _path_ should be a pathname, probably prefixed with absolute or relative paths, and _url_ should be a URL string, which may consist of multiple TAB-separated URLs pointing to the same file. A valid `path_urls`, for example, could be [('_/opt/files/bar.tar.bz2_', '_https://foo.cc/bar.tar.bz2_'), ('_./sanguoshuowen.pdf_', '_https://bar.cc/sanguoshuowen.pdf\thttps://foo.cc/sanguoshuowen.pdf_'), ('_/**to**/**be**/created/_', '_https://flash.jiefang.rmy/lc-cl/gaozhuang/chelsia/rockspeaker.tar.gz_'), ('_/path/to/**existed**-dir_', '_https://ghosthat.bar/foo/puretonecone81.xz\thttps://tpot.horn/foo/puretonecone81.xz\thttps://hawkhill.bar/foo/puretonecone81.xz_')].
 
 `
 BDownloader.download(path, url)
@@ -176,26 +176,30 @@ if __name__ == '__main__':
 #### Synopsis
 
 ```
-bdownload [-h] -o OUTPUT [OUTPUT ...] --url URL [URL ...] [-D DIR]
-                [-p PROXY] [-n MAX_WORKERS] [-k MIN_SPLIT_SIZE]
-                [-s CHUNK_SIZE] [-e COOKIE] [--user-agent USER_AGENT]
-                [-P {mill,bar}] [--num-pools NUM_POOLS]
-                [--pool-size POOL_SIZE]
+bdownload [-h] [-o OUTPUT [OUTPUT ...]] -L URLS [URLS ...] [-D DIR]
+               [-p PROXY] [-n MAX_WORKERS] [-k MIN_SPLIT_SIZE]
+               [-s CHUNK_SIZE] [-e COOKIE] [--user-agent USER_AGENT]
+               [-P {mill,bar}] [--num-pools NUM_POOLS]
+               [--pool-size POOL_SIZE]
 ```
 
 #### Description
 
+`-h, --help`
+
+    show help message and exit
+
 `-o OUTPUT [OUTPUT ...], --output OUTPUT [OUTPUT ...]`
 
-    one or more file names, e.g. `-o file1.zip ~/file2.tgz`, paired with URLs specified by `--url`
+    one or more file names (optionally prefixed with relative (to `-D DIR`) or absolute paths), e.g. `-o file1.zip ~/file2.tgz`, paired with URLs specified by `--url` or `-L`
 
-`--url URL [URL ...]`
+`-L URLS [URLS ...], --url URLS [URLS ...]`
 
-    URL(s) for the files to be downloaded, which might be TAB-separated URLs pointing to the same file, e.g. `--url https://yoursite.net/yourfile.7z`, `--url "https://yoursite01.net/thefile.7z\thttps://yoursite02.com/thefile.7z"`, or `--url "http://foo.cc/file1.zip"  "http://bar.cc/file2.tgz\thttp://bar2.cc/file2.tgz"`
+    URL(s) for the files to be downloaded, which might be TAB-separated URLs pointing to the same file, e.g. `-L https://yoursite.net/yourfile.7z`, `-L "https://yoursite01.net/thefile.7z\thttps://yoursite02.com/thefile.7z"`, or `--url "http://foo.cc/file1.zip"  "http://bar.cc/file2.tgz\thttp://bar2.cc/file2.tgz"`
 
 `-D DIR, --dir DIR`
 
-    path to save the downloaded files
+    directory in which to save the downloaded files
 
 `-p PROXY, --proxy PROXY`
 

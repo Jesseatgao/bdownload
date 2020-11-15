@@ -26,7 +26,22 @@ def _dec_raw_tab_separated_urls(url):
         https://stackoverflow.com/questions/1885181/how-to-un-escape-a-backslash-escaped-string
         https://stackoverflow.com/questions/34145686/handling-argparse-escaped-character-as-option
     """
-    return decode(encode(url, 'latin-1'), 'unicode_escape')
+    norm_url = decode(encode(url, 'latin-1'), 'unicode_escape')
+
+    # do some basic validation of the `url`
+    urls = norm_url.split('\t')
+    for suburl in urls:
+        try:
+            matched = _dec_raw_tab_separated_urls.regex.match(suburl.strip())
+        except AttributeError:
+            _dec_raw_tab_separated_urls.regex = re.compile(r'^https?://[^./\s\\]+\.[^./\s\\].*$')
+            matched = _dec_raw_tab_separated_urls.regex.match(suburl.strip())
+
+        if not matched:
+            msg = '{!r} contains invalid URL(s): not conforming to "http[s]://foo.bar[*]"'.format(norm_url)
+            raise ArgumentTypeError(msg)
+
+    return norm_url
 
 
 def _normalize_bytes_num(bytes_num):
@@ -51,17 +66,18 @@ def _normalize_bytes_num(bytes_num):
 def _arg_parser():
     parser = ArgumentParser()
 
-    parser.add_argument('-o', '--output', nargs='+', required=True, dest='output',
-                        help='one or more file names, e.g. `-o file1.zip ~/file2.tgz`, paired with URLs specified by --url')
+    parser.add_argument('-o', '--output', nargs='+', dest='output',
+                        help='one or more file names (optionally prefixed with relative (to `-D DIR`) or absolute paths), '
+                             'e.g. `-o file1.zip ~/file2.tgz`, paired with URLs specified by `--url` or `-L`')
 
-    parser.add_argument('--url', nargs='+', required=True, dest='url', type=_dec_raw_tab_separated_urls,
+    parser.add_argument('-L', '--url', nargs='+', required=True, dest='urls', type=_dec_raw_tab_separated_urls,
                         help='URL(s) for the files to be downloaded, '
                              'which might be TAB-separated URLs pointing to the same file, '
-                             'e.g. `--url https://yoursite.net/yourfile.7z`, '
-                             '`--url "https://yoursite01.net/thefile.7z\\thttps://yoursite02.com/thefile.7z"`, '
+                             'e.g. `-L https://yoursite.net/yourfile.7z`, '
+                             '`-L "https://yoursite01.net/thefile.7z\\thttps://yoursite02.com/thefile.7z"`, '
                              'or `--url "http://foo.cc/file1.zip" "http://bar.cc/file2.tgz\\thttp://bar2.cc/file2.tgz"`')
 
-    parser.add_argument('-D', '--dir', default='.', dest='dir', help='path to save the downloaded files')
+    parser.add_argument('-D', '--dir', default='.', dest='dir', help='directory in which to save the downloaded files')
 
     parser.add_argument('-p', '--proxy', dest='proxy', default=None,
                         help='proxy in the form of "http://[user:pass@]host:port" or "socks5://[user:pass@]host:port" ')
@@ -97,10 +113,14 @@ def main():
 
     args = _arg_parser().parse_args()
 
-    files = [abspath(normpath(join(args.dir, f))) for f in args.output]
-    file_urls = list(zip(files, args.url))
+    files = ['']*len(args.urls) if args.output is None else args.output+['']*(len(args.urls)-len(args.output))
+    if len(files) > len(args.urls):
+        logging.warning('The specified OUTPUTs and URLs don\'t align, extra OUTPUTs will be ignored: {!r}'.format(args.output[len(args.urls):]))
+
+    path_files = [abspath(normpath(join(args.dir, f))) for f in files]
+    path_urls = list(zip(path_files, args.urls))
 
     with BDownloader(max_workers=args.max_workers, min_split_size=args.min_split_size, chunk_size=args.chunk_size,
                      proxy=args.proxy, cookies=args.cookie, user_agent=args.user_agent, progress=args.progress,
                      num_pools=args.num_pools, pool_maxsize=args.pool_size) as downloader:
-        downloader.downloads(file_urls)
+        downloader.downloads(path_urls)
