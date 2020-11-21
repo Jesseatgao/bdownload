@@ -33,8 +33,7 @@ setup(
         'requests[socks]',
         'requests',
         'clint',
-        'futures; python_version == "2.7"',
-        'pathlib2; python_version == "2.7"'
+        'futures; python_version == "2.7"'
     ],
     setup_requires=[],
     cmdclass=cmd_classes,

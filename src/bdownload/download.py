@@ -14,17 +14,14 @@ from math import trunc
 import re
 
 try:
-  from pathlib import Path
+    from urllib.parse import unquote, urlparse
 
-  from urllib.parse import unquote, urlparse
-
-  unichr = chr
+    unichr = chr
 except ImportError:
-  from pathlib2 import Path
+    from urllib import unquote
+    from urlparse import urlparse
 
-  from urllib import unquote
-  from urlparse import urlparse
-
+from distutils.dir_util import mkpath
 import requests
 from requests.adapters import HTTPAdapter
 from requests.packages.urllib3.util.retry import Retry
@@ -601,7 +598,7 @@ class BDownloader(object):
             file_path_name = os.path.abspath(os.path.join(file_path, file_name))
             try:
                 if file_path and not os.path.exists(file_path):
-                    Path(file_path).mkdir(parents=True, exist_ok=True)
+                    mkpath(file_path)
                 with open(file_path_name, mode='w') as _:
                     pass
             except OSError as e:

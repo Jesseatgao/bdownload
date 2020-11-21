@@ -1,6 +1,9 @@
+# -*- coding: utf-8 -*-
 from __future__ import absolute_import
 from __future__ import unicode_literals
 
+import sys
+from platform import system
 from argparse import ArgumentParser, ArgumentTypeError
 from os.path import join, normpath, abspath
 import re
@@ -17,16 +20,67 @@ DEFAULT_NUM_POOLS = 20          # number of connection pools
 DEFAULT_POOL_SIZE = 20          # max number of connections in the pool
 
 
+def _win32_utf8_argv():
+    """Use ``kernel32.GetCommandLineW`` and ``shell32.CommandLineToArgvW`` to get ``sys.argv`` as a list of UTF-8 strings.
+
+    Versions 2.5 and older of Python don't support Unicode ("mon€y röcks" for example) in ``sys.argv`` on
+    Windows, with the underlying Windows API instead replacing multi-byte characters with '?'.
+
+    Returns:
+         list of str: Command-line arguments. A list of utf-8 strings for success, None on failure.
+
+    References:
+        https://code.activestate.com/recipes/572200/
+        https://stackoverflow.com/questions/846850/
+
+    """
+    try:
+        from ctypes import POINTER, byref, cdll, c_int, windll
+        from ctypes.wintypes import LPCWSTR, LPWSTR
+
+        GetCommandLineW = cdll.kernel32.GetCommandLineW
+        GetCommandLineW.argtypes = []
+        GetCommandLineW.restype = LPCWSTR
+
+        CommandLineToArgvW = windll.shell32.CommandLineToArgvW
+        CommandLineToArgvW.argtypes = [LPCWSTR, POINTER(c_int)]
+        CommandLineToArgvW.restype = POINTER(LPWSTR)
+
+        cmd = GetCommandLineW()
+        argc = c_int(0)
+        argv = CommandLineToArgvW(cmd, byref(argc))
+        if argc.value > 0:
+            # Remove Python executable if present
+            start = argc.value - len(sys.argv)
+            return [argv[i] for i in range(start, argc.value)]
+    except Exception:
+        pass
+
+
 def _dec_raw_tab_separated_urls(url):
     """decode a *raw* URL string that may consist of multiple escaped TAB-separated URLs
-    `url` examples:
-        r'https://fakewebsite-01.com/downloads/soulbody4ct.pdf\thttps://fakewebsite-02.com/archives/soulbody4ct.pdf'
-        r"https://fakewebsite-01.com/downloads/ipcress.docx	https://fakewebsite-02.com/archives/ipcress.docx"
+
+    Args:
+        url (str): URL for the files to be downloaded, which might be TAB-separated URLs pointing to the same file.
+
+            Examples of `url`:
+            - r'https://fakewebsite-01.com/downloads/soulbody4ct.pdf\thttps://fakewebsite-02.com/archives/soulbody4ct.pdf'
+            - r"https://fakewebsite-01.com/downloads/ipcress.docx	https://fakewebsite-02.com/archives/ipcress.docx"
+            - r'https://tianchengren:öp€nsasimi@i.louder.ss\thttps://fangxun.xiaoqing.sunmoon.xue'
+
+    Returns:
+        str: Decoded URL
+
+    Raises:
+        ArgumentTypeError: Raised when `url` contains URL(s) that don't conform to the format "http[s]://[user:pass@]foo.bar[*]".
+
     References:
         https://stackoverflow.com/questions/1885181/how-to-un-escape-a-backslash-escaped-string
         https://stackoverflow.com/questions/34145686/handling-argparse-escaped-character-as-option
+        https://stackoverflow.com/questions/161738/what-is-the-best-regular-expression-to-check-if-a-string-is-a-valid-url
+        https://github.com/django/django/blob/master/django/core/validators.py
     """
-    norm_url = decode(encode(url, 'latin-1'), 'unicode_escape')
+    norm_url = decode(encode(url, 'latin-1', 'backslashreplace'), 'unicode_escape')
 
     # do some basic validation of the `url`
     urls = norm_url.split('\t')
@@ -34,11 +88,20 @@ def _dec_raw_tab_separated_urls(url):
         try:
             matched = _dec_raw_tab_separated_urls.regex.match(suburl.strip())
         except AttributeError:
-            _dec_raw_tab_separated_urls.regex = re.compile(r'^https?://[^./\s\\]+\.[^./\s\\].*$')
+            _dec_raw_tab_separated_urls.regex = re.compile(
+                r'^https?://'  # scheme
+                r'(?:[^\s:@/]+(?::[^\s:@/]*)?@)?'  # user:pass authentication (deprecated)
+                r'(?:(?:[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?\.)+(?:[A-Z]{2,6}\.?|[A-Z0-9-]{2,}\.?)|'  # domain
+                r'localhost|'  # localhost
+                r'(?:25[0-5]|2[0-4]\d|[0-1]?\d?\d)(?:\.(?:25[0-5]|2[0-4]\d|[0-1]?\d?\d)){3}|'  # ipv4
+                r'\[?[A-F0-9]*:[A-F0-9:]+\]?)'  # ipv6
+                r'(?::\d{2,5})?'  # port
+                r'(?:/?|[/?]\S+)$',  # resource path
+                re.IGNORECASE)
             matched = _dec_raw_tab_separated_urls.regex.match(suburl.strip())
 
         if not matched:
-            msg = '{!r} contains invalid URL(s): not conforming to "http[s]://foo.bar[*]"'.format(norm_url)
+            msg = '{!r} contains invalid URL(s): not conforming to "http[s]://[user:pass@]foo.bar[*]"'.format(norm_url)
             raise ArgumentTypeError(msg)
 
     return norm_url
@@ -110,6 +173,18 @@ def _arg_parser():
 
 def main():
     logging.basicConfig()
+
+    try:
+        unicode
+
+        # for Python 2.x on Windows only
+        sys_name = system()
+        if sys_name == 'Windows':
+            argv = _win32_utf8_argv()
+            if argv:
+                sys.argv = argv
+    except NameError:
+        pass
 
     args = _arg_parser().parse_args()
 
