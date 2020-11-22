@@ -58,7 +58,7 @@ def _win32_utf8_argv():
 
 
 def _dec_raw_tab_separated_urls(url):
-    """decode a *raw* URL string that may consist of multiple escaped TAB-separated URLs
+    """decode a *raw* URL string that may consist of multiple escaped TAB-separated URLs.
 
     Args:
         url (str): URL for the files to be downloaded, which might be TAB-separated URLs pointing to the same file.
@@ -69,7 +69,7 @@ def _dec_raw_tab_separated_urls(url):
             - r'https://tianchengren:öp€nsasimi@i.louder.ss\thttps://fangxun.xiaoqing.sunmoon.xue'
 
     Returns:
-        str: Decoded URL
+        str: Decoded URL.
 
     Raises:
         ArgumentTypeError: Raised when `url` contains URL(s) that don't conform to the format "http[s]://[user:pass@]foo.bar[*]".

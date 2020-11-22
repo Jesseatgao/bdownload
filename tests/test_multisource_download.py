@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 from __future__ import unicode_literals
 
 import unittest
@@ -25,11 +26,11 @@ FILES = [
                 "sha1": "84866f6c637042297eda09cdd4fed35118c4f507"
             },
             {
-                "file": "gcc-10_10.2.0-17_amd64.deb",
-                "url": "http://ftp.us.debian.org/debian/pool/main/g/gcc-10/gcc-10_10.2.0-17_amd64.deb	"
-                       "http://debian-archive.trafficmanager.net/debian/pool/main/g/gcc-10/gcc-10_10.2.0-17_amd64.deb\t"
-                       "http://ftp.uk.debian.org/debian/pool/main/g/gcc-10/gcc-10_10.2.0-17_amd64.deb",
-                "sha1": "c730e30339c75ff94abfc9765368b98635020816"
+                "file": "gcc-10_10.2.0-18_amd64.deb",
+                "url": "http://ftp.us.debian.org/debian/pool/main/g/gcc-10/gcc-10_10.2.0-18_amd64.deb	"
+                       "http://debian-archive.trafficmanager.net/debian/pool/main/g/gcc-10/gcc-10_10.2.0-18_amd64.deb\t"
+                       "http://ftp.uk.debian.org/debian/pool/main/g/gcc-10/gcc-10_10.2.0-18_amd64.deb",
+                "sha1": "e8a816baa5474371783ffbad1bb8fa2b5996d714"
             }
         ]
 
@@ -41,7 +42,7 @@ class TestMultiSourceDownload(unittest.TestCase):
 
         cls.files = FILES
         for f in cls.files:
-            f['file'] = os.path.join(cls.tmp_dir, f['file'])
+            f['file'] = os.path.normpath(os.path.join(cls.tmp_dir, 'röckshark/高昌/中/南海观音/c-hyphen-key/后海/zhangminguo', f['file']))
 
     @classmethod
     def tearDownClass(cls):

@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 from __future__ import unicode_literals
 
 import unittest
@@ -26,7 +27,7 @@ class TestCommandLineTool(unittest.TestCase):
 
         cls.files = FILES
         for f in cls.files:
-            f['file'] = os.path.join(cls.tmp_dir, f['file'])
+            f['file'] = os.path.normpath(os.path.join(cls.tmp_dir, f['file']))
 
     @classmethod
     def tearDownClass(cls):
