@@ -1,14 +1,17 @@
 from setuptools import setup, find_packages
 import codecs
+import os
 
-with open('src/bdownload/VERSION', mode='r') as fd:
+here = os.path.abspath(os.path.dirname(__file__))
+
+with codecs.open(os.path.join(here, 'src', 'bdownload', 'VERSION'), 'r', 'utf-8') as fd:
     version = fd.read().strip()
     
-with codecs.open('README.md', 'r', 'utf-8') as fd:
+with codecs.open(os.path.join(here, 'README.md'), 'r', 'utf-8') as fd:
     long_description = fd.read()
     
 # Extends the Setuptools `clean` command
-with open('third_parties/setupext_janitor/janitor.py') as setupext_janitor:
+with open(os.path.join(here, 'third_parties', 'setupext_janitor', 'janitor.py')) as setupext_janitor:
     exec(setupext_janitor.read())
 
 # try:
@@ -42,14 +45,14 @@ setup(
             'bdownload = bdownload.cli:main',
         ],
         'distutils.commands': [
-            ' clean = CleanCommand'
+            'clean = CleanCommand'
         ]
     },
     url='https://github.com/Jesseatgao/bdownload',
     license='MIT License',
-    author='Jesse',
+    author='Jesse Gao',
     author_email='changxigao@gmail.com',
-    description='A multi-threaded aria2-like batch file downloading library for Python',
+    description='A multi-threaded and multi-source aria2-like batch file downloading library for Python',
     long_description=long_description,
     long_description_content_type='text/markdown',
     classifiers=[
