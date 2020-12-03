@@ -713,11 +713,12 @@ class BDownloader(object):
                 self._logger.error('Failed to download: {!r}'.format(failed_path_urls))
 
         #done, not_done = wait(self._dl_ctx["futures"].keys())
+        self._wait_for_all()
 
     def download(self, path_name, url):
         return self.downloads([(path_name, url)])
 
-    def wait_for_all(self):
+    def _wait_for_all(self):
         while True:
             if not self._is_all_done():
                 time.sleep(0.1)
@@ -725,7 +726,6 @@ class BDownloader(object):
                 break
 
     def close(self):
-        self.wait_for_all()
         self.executor.shutdown()
 
         self.stop = True
