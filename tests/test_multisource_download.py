@@ -26,11 +26,11 @@ FILES = [
                 "sha1": "84866f6c637042297eda09cdd4fed35118c4f507"
             },
             {
-                "file": "gcc-10_10.2.0-18_amd64.deb",
-                "url": "http://ftp.us.debian.org/debian/pool/main/g/gcc-10/gcc-10_10.2.0-18_amd64.deb	"
-                       "http://debian-archive.trafficmanager.net/debian/pool/main/g/gcc-10/gcc-10_10.2.0-18_amd64.deb\t"
-                       "http://ftp.uk.debian.org/debian/pool/main/g/gcc-10/gcc-10_10.2.0-18_amd64.deb",
-                "sha1": "e8a816baa5474371783ffbad1bb8fa2b5996d714"
+                "file": "eclipse_3.8.1.orig.tar.xz",
+                "url": "http://ftp.us.debian.org/debian/pool/main/e/eclipse/eclipse_3.8.1.orig.tar.xz	"
+                       "http://debian-archive.trafficmanager.net/debian/pool/main/e/eclipse/eclipse_3.8.1.orig.tar.xz\t"
+                       "http://ftp.uk.debian.org/debian/pool/main/e/eclipse/eclipse_3.8.1.orig.tar.xz",
+                "sha1": "9b8bb069eea91ac7f1b7a3295803056e50e31fa1"
             }
         ]
 
