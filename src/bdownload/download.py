@@ -33,19 +33,30 @@ here = os.path.dirname(os.path.abspath(__file__))
 with open(os.path.join(here, 'VERSION'), mode='r') as fd:
     __version__ = fd.read().strip()
 
+# retry configuration
 
-def retry(exceptions, tries=3, backoff_factor=0.1, logger=None):
-    """
-    Retry calling the decorated function using an exponential backoff.
-    Ref: http://www.saltycrane.com/blog/2009/11/trying-out-retry-decorator-python/
-         https://en.wikipedia.org/wiki/Exponential_backoff
+#: int: Number of retries on exception wrapping around the ``requests.Session``'s methods.
+REQUESTS_RETRIES_ON_EXCEPTION = 3
+
+
+def retry(exceptions, retries=3, backoff_factor=0.1, logger=None):
+    """A decorator that retries calling the wrapped function using an exponential backoff on exception.
 
     Args:
-        exceptions: The exception to check. may be a tuple of
-            exceptions to check.
-        tries: Number of times to try before giving up.
-        backoff_factor:
-        logger: Logger to use. None to disable logging.
+        exceptions (:obj:`Exception` or :obj:`tuple` of :obj:`Exception`\ s): The exceptions to check against.
+        retries (int): Number of retries when `exceptions` occurred.
+        backoff_factor (float): The backoff factor to apply between retries.
+        logger (logging.Logger): An event logger.
+
+    Returns:
+        The wrapper function.
+
+    Raises:
+        `exceptions`: Re-raise the last caught exception when retries is exhausted.
+
+    References:
+         http://www.saltycrane.com/blog/2009/11/trying-out-retry-decorator-python/
+         https://en.wikipedia.org/wiki/Exponential_backoff
     """
     if logger is None:
         logger = logging.getLogger(__name__)
@@ -55,7 +66,7 @@ def retry(exceptions, tries=3, backoff_factor=0.1, logger=None):
         @wraps(f)
         def f_retry(*args, **kwargs):
             ntries = 0
-            while ntries < tries:
+            while ntries < retries:
                 try:
                     return f(*args, **kwargs)
                 except exceptions as e:
@@ -63,7 +74,7 @@ def retry(exceptions, tries=3, backoff_factor=0.1, logger=None):
                     steps = random.randrange(1, 2**ntries)
                     backoff = steps * backoff_factor
 
-                    logger.warning('{!r}, Retrying {}/{} in {:.2f} seconds...'.format(e, ntries, tries, backoff))
+                    logger.warning('{!r}, Retrying {}/{} in {:.2f} seconds...'.format(e, ntries, retries, backoff))
 
                     time.sleep(backoff)
 
@@ -80,32 +91,47 @@ def retry(exceptions, tries=3, backoff_factor=0.1, logger=None):
 
 
 class RequestsSessionWrapper(Session):
+    """Subclass of the ``requests``' ``Session`` class with extended `retry-on-exception` behavior for the `get` method.
+
+    Note:
+        The retry mechanism here is independent from that of from ``urllib3`` (see :func:`requests_retry_session`).
+        Nevertheless, they together determine the number of the total retries using the following formula:
+
+        (:const:`REQUESTS_RETRIES_ON_EXCEPTION` + 1) * (`retries` passed to :func:`requests_retry_session`).
+    """
     def __init__(self):
+        """Initialize the `Session` with default HTTP headers.
+
+        The HTTP header ``User-Agent`` is set to a default value of `bdownload/VERSION`, with `VERSION` being replaced
+        by the package's version number.
+        """
         super(RequestsSessionWrapper, self).__init__()
 
         default_user_agent = 'bdownload/{}'.format(__version__)
         headers = {
             'User-Agent': default_user_agent,
-            'Accept-Encoding': 'gzip, identity, deflate, br, *'
+            # 'Accept-Encoding': 'gzip, identity, deflate, br, *'
         }
         self.headers = headers
 
-    @retry(requests.RequestException)
+    @retry(requests.RequestException, retries=REQUESTS_RETRIES_ON_EXCEPTION)
     def get(self, url, params=None, timeout=(3.2, 6), verify=True, **kwargs):
+        """Wrapper around ``requests.Session``'s `get` method decorated with the :func:`retry` decorator.
+        """
         return super(RequestsSessionWrapper, self).get(url, params=params, timeout=timeout, verify=verify, **kwargs)
 
 
 def requests_retry_session(
-        retries=2,
-        backoff_factor=0.2,
-        status_forcelist=(500, 502, 504),
+        retries=3,
+        backoff_factor=0.1,
+        status_forcelist=(429, 500, 502, 503, 504),
         session=None,
         num_pools=20,
         pool_maxsize=20
 ):
     """
-    Ref: https://www.peterbe.com/plog/best-practice-with-retries-with-requests
-
+    References:
+         https://www.peterbe.com/plog/best-practice-with-retries-with-requests
     """
     # session = session or requests.Session()
     session = session or RequestsSessionWrapper()
@@ -124,8 +150,7 @@ def requests_retry_session(
 
 
 def _build_cookiejar_from_kvp(key_values):
-    """
-    build a CookieJar from key-value pairs of the form "cookie_key=cookie_value cookie_key2=cookie_value2"
+    """build a CookieJar from key-value pairs of the form "cookie_key=cookie_value cookie_key2=cookie_value2".
 
     """
     if key_values:
@@ -139,7 +164,10 @@ def _build_cookiejar_from_kvp(key_values):
 
 
 def unquote_unicode(string):
-    """https://stackoverflow.com/questions/300445"""
+    """
+    References:
+        https://stackoverflow.com/questions/300445
+    """
     try:
         if isinstance(string, unicode):
             string = string.encode('utf-8')
@@ -176,10 +204,12 @@ def unquote_unicode(string):
 
 
 class MillProgress(object):
-    """
-    Print a mill while progressing.
-    Source: grabbed from `clint.textui.progress`, adding support for unknown `expected_size`.
-    Source_URL: https://github.com/kennethreitz-archive/clint/blob/master/clint/textui/progress.py
+    """Print a mill while progressing.
+
+    This class is adapted from ``clint.textui.progress``, with added support for unknown `expected_size`.
+
+    References:
+         https://github.com/kennethreitz-archive/clint/blob/master/clint/textui/progress.py
     """
     STREAM = sys.stderr
     MILL_TEMPLATE = '{}  {}  {:,d}/{:<}  {}  {:>}: {}\r'
@@ -288,44 +318,47 @@ class MillProgress(object):
 
 
 class BDownloader(object):
-    """
-    ctx = {
-        "total_size": 2000,  # total size of all the to-be-downloaded files, maybe inaccurate due to chunked transfer encoding
-        "accurate": True,  # Is `total_size` accurate?
-        "files":{
-            "file1":{
-                "length": 2000,  # 0 means 'unkown', i.e. file size can't be pre-determined through any one of provided URLs
-                "resumable": True,
-                "urls":{"url1":{"accept_ranges": "bytes", "refcnt": 2}, "url2":{"accept_ranges": "none", "refcnt": 0}},
-                "ranges":{
-                    "bytes=0-999": {
-                        "start": 0,  # start byte position
-                        "end": 999,  # end byte position, None for 'unkown', see above
-                        "offset": 0,  # current pointer position relative to 'start'(i.e. 0)
-                        "start_time": 0,
-                        "rt_dl_speed": 0,  # x seconds interval
-                       "future": future1,
-                       "url": [url1]
-                    },
-                    "bytes=1000-1999": {
-                        "start":1000,
-                        "end":1999,
-                        "offset": 0,  # current pointer position relative to 'start'(i.e. 1000)
-                        "start_time": 0,
-                        "rt_dl_speed": 0,  # x seconds interval
-                        "future": future2,
-                        "url": [url1]
+    """The class for executing and managing download jobs.
+
+    The context of the current downloading job is structured as::
+
+        ctx = {
+            "total_size": 2000,  # total size of all the to-be-downloaded files, maybe inaccurate due to chunked transfer encoding
+            "accurate": True,  # Is `total_size` accurate?
+            "files":{
+                "file1":{
+                    "length": 2000,  # 0 means 'unkown', i.e. file size can't be pre-determined through any one of provided URLs
+                    "resumable": True,
+                    "urls":{"url1":{"accept_ranges": "bytes", "refcnt": 2}, "url2":{"accept_ranges": "none", "refcnt": 0}},
+                    "ranges":{
+                        "bytes=0-999": {
+                            "start": 0,  # start byte position
+                            "end": 999,  # end byte position, None for 'unkown', see above
+                            "offset": 0,  # current pointer position relative to 'start'(i.e. 0)
+                            "start_time": 0,
+                            "rt_dl_speed": 0,  # x seconds interval
+                           "future": future1,
+                           "url": [url1]
+                        },
+                        "bytes=1000-1999": {
+                            "start":1000,
+                            "end":1999,
+                            "offset": 0,  # current pointer position relative to 'start'(i.e. 1000)
+                            "start_time": 0,
+                            "rt_dl_speed": 0,  # x seconds interval
+                            "future": future2,
+                            "url": [url1]
+                        }
                     }
+                },
+                "file2":{
                 }
             },
-            "file2":{
+            "futures": {
+                future1: {"file": "file1", "range": "bytes=0-999"},
+                future2: {"file": "file1", "range": "bytes=1000-1999"}
             }
-        },
-        "futures": {
-            future1: {"file": "file1", "range": "bytes=0-999"},
-            future2: {"file": "file1", "range": "bytes=1000-1999"}
         }
-    }
     """
     def __enter__(self):
         return self
@@ -336,6 +369,32 @@ class BDownloader(object):
 
     def __init__(self, max_workers=None, min_split_size=1024*1024, chunk_size=1024*100, proxy=None, cookies=None,
                  user_agent=None, logger=None, progress='mill', num_pools=20, pool_maxsize=20):
+        """Create and initialize a :class:`BDownloader` object.
+
+        Args:
+            max_workers (int): The `max_workers` parameter specifies the number of the parallel downloading threads,
+                whose default value is determined by ``#num_of_processor * 5`` if set to `None`.
+            min_split_size (int): `min_split_size` denotes the size in bytes of file pieces split to be downloaded
+                in parallel, which defaults to 1024*1024 bytes (i.e. 1MB).
+            chunk_size (int): The `chunk_size` parameter specifies the chunk size in bytes of every http range request,
+                which will take a default value of 1024*100 (i.e. 100KB) if not provided.
+            proxy (str): The `proxy` supports both HTTP and SOCKS proxies in the form of ``'http://[user:pass@]host:port'``
+                and ``'socks5://[user:pass@]host:port'``, respectively.
+            cookies (str): If `cookies` needs to be set, it must take the form of ``'cookie_key=cookie_value'``, with
+                multiple pairs separated by space character if applicable, e.g. ``'key1=val1 key2=val2'``.
+            user_agent (str): When `user_agent` is not given, it will default to ``'bdownload/VERSION'``, with ``VERSION``
+                being replaced by the package's version number.
+            logger (logging.Logger): The `logger` parameter specifies an event logger. If `logger` is not `None`,
+                it must be an object of class :class:`logging.Logger` or of its customized subclass.  Otherwise,
+                it will use a default module-level logger returned by ``logging.getLogger(__name__)``.
+            progress (str): `progress` determines the style of the progress bar displayed while downloading files.
+                Possible values are ``'mill'`` and ``'bar'``, and ``'mill'`` is the default.
+            num_pools (int): The `num_pools` parameter has the same meaning as `num_pools` in ``urllib3.PoolManager``
+                and will eventually be passed to it. Specifically, `num_pools` specifies the number of connection pools
+                to cache.
+            pool_maxsize (int): `pool_maxsize` will be passed to the underlying ``requests.adapters.HTTPAdapter``.
+                It specifies the maximum number of connections to save that can be reused in the urllib3 connection pool.
+        """
         self.requester = requests_retry_session(num_pools=num_pools, pool_maxsize=pool_maxsize)
         if proxy is not None:
             self.requester.proxies = dict(http=proxy, https=proxy)
@@ -477,7 +536,7 @@ class BDownloader(object):
                 raise
 
     def _pick_file_url(self, path_name):
-        """Select one URL from multiple sources according to max-connection-per-server etc
+        """Select one URL from multiple sources according to max-connection-per-server etc.
         """
         STRIPE_WIDTH = 3
 
@@ -500,8 +559,10 @@ class BDownloader(object):
 
     @staticmethod
     def _get_fname_from_hdr(content_disposition):
-        """"Get the file name from the Content-Disposition field of the HTTP header
-        Ref: https://stackoverflow.com/questions/37060344
+        """"Get the file name from the Content-Disposition field of the HTTP header.
+
+        References:
+            https://stackoverflow.com/questions/37060344
         """
         fname = re.findall(r"filename\*=([^;]+)", content_disposition, flags=re.IGNORECASE)
         if not fname:
@@ -528,9 +589,6 @@ class BDownloader(object):
         return fname[-250:].strip()
 
     def _build_ctx_internal(self, path_name, url):
-        # check whether `path_name` refers to a file (perhaps prefixed with a path) or a directory.
-        # If it is a directory, then a file name should be determined through the `url`.
-        #
         path_url = (path_name, url)
 
         if not path_name:
@@ -538,6 +596,8 @@ class BDownloader(object):
         if url is None:
             url = ''
 
+        # Check whether `path_name` refers to a file (perhaps prefixed with a path) or a directory.
+        # If it is a directory, then a file name should be determined through the `url`.
         path_head, path_tail = os.path.split(path_name)
         if not path_tail or os.path.isdir(path_name):
             file_name = None
@@ -698,7 +758,16 @@ class BDownloader(object):
             progress_bar.done()
 
     def downloads(self, path_urls):
-        """path_urls: [('path1', 'url1\turl2\turl3'),('path2', 'url4'),]
+        """Submit multiple downloading jobs at a time.
+
+        Args:
+            path_urls (:obj:`list` of :obj:`tuple`\ s): `path_urls` accepts a list of tuples of the form ``(path, url)``,
+                where ``path`` should be a pathname, optionally prefixed with absolute or relative paths, and ``url`` should
+                be a URL string, which may consist of multiple TAB-separated URLs pointing to the same file.
+                A valid `path_urls`, for example, could be [('/opt/files/bar.tar.bz2', ``'https://foo.cc/bar.tar.bz2'``),
+                ('./sanguoshuowen.pdf', ``'https://bar.cc/sanguoshuowen.pdf\\thttps://foo.cc/sanguoshuowen.pdf'``),
+                ('/**to**/**be**/created/', ``'https://flash.jiefang.rmy/lc-cl/gaozhuang/chelsia/rockspeaker.tar.gz'``),
+                ('/path/to/**existed**-dir', ``'https://ghosthat.bar/foo/puretonecone81.xz\\thttps://tpot.horn/foo/puretonecone81.xz\\thttps://hawkhill.bar/foo/puretonecone81.xz'``)].
         """
         for chunk_path_urls in self.list_split(path_urls, chunk_size=2):
             active_path_urls, failed_path_urls = self._build_ctx(chunk_path_urls)

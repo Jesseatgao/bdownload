@@ -33,8 +33,9 @@ def _win32_utf8_argv():
          list of str: Command-line arguments. A list of utf-8 strings for success, None on failure.
 
     References:
-        .. [1] https://code.activestate.com/recipes/572200/
-        .. [2] https://stackoverflow.com/questions/846850/read-unicode-characters-from-command-line-arguments-in-python-2-x-on-windows
+        [1] https://code.activestate.com/recipes/572200/
+
+        [2] https://stackoverflow.com/questions/846850/
     """
     try:
         from ctypes import POINTER, byref, cdll, c_int, windll
@@ -66,6 +67,7 @@ def _dec_raw_tab_separated_urls(url):
         url (str): URL for the files to be downloaded, which might be TAB-separated URLs pointing to the same file.
 
             | Examples of `url` include:
+
             - ``'https://fakewebsite-01.com/downloads/soulbody4ct.pdf\\thttps://fakewebsite-02.com/archives/soulbody4ct.pdf'``
             - ``'https://fakewebsite-01.com/downloads/ipcress.docx	https://fakewebsite-02.com/archives/ipcress.docx'``
             - ``'https://tianchengren:öp€nsasimi@i.louder.ss\\thttps://fangxun.xiaoqing.sunmoon.xue'``
@@ -77,10 +79,13 @@ def _dec_raw_tab_separated_urls(url):
         ArgumentTypeError: Raised when `url` contains URL(s) that don't conform to the format "http[s]://[user:pass@]foo.bar[*]".
 
     References:
-        .. [1] https://stackoverflow.com/questions/1885181/how-to-un-escape-a-backslash-escaped-string
-        .. [2] https://stackoverflow.com/questions/34145686/handling-argparse-escaped-character-as-option
-        .. [3] https://stackoverflow.com/questions/161738/what-is-the-best-regular-expression-to-check-if-a-string-is-a-valid-url
-        .. [4] https://github.com/django/django/blob/master/django/core/validators.py
+        [1] https://stackoverflow.com/questions/1885181/
+
+        [2] https://stackoverflow.com/questions/34145686/
+
+        [3] https://stackoverflow.com/questions/161738/
+
+        [4] https://github.com/django/django/blob/master/django/core/validators.py
     """
     norm_url = decode(encode(url, 'latin-1', 'backslashreplace'), 'unicode_escape')
 

@@ -19,12 +19,3 @@ bdownload.download module
     :members:
     :undoc-members:
     :show-inheritance:
-
-
-Module contents
----------------
-
-.. automodule:: bdownload
-    :members:
-    :undoc-members:
-    :show-inheritance:

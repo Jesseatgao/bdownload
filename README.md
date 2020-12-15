@@ -36,7 +36,7 @@ class bdownload.BDownloader(max_workers=None, min_split_size=1024*1024, chunk_si
 
     Create and initialize a `BDownloader` object for executing download jobs.
   
-  * The `max_workers` parameter specifies the number of the parallel downloading threads, whose default value is determined by _#num_of_processor * 5_.
+  * The `max_workers` parameter specifies the number of the parallel downloading threads, whose default value is determined by _#num_of_processor * 5_ if set to `None`.
   
   * `min_split_size` denotes the size in bytes of file pieces split to be downloaded in parallel, which defaults to 1024*1024 bytes (i.e. 1MB).
   
@@ -48,13 +48,13 @@ class bdownload.BDownloader(max_workers=None, min_split_size=1024*1024, chunk_si
   
   * When `user_agent` is not given, it will default to '_bdownload/VERSION_', with _VERSION_ being replaced by the package's version number.
   
-  * The `logger` parameter specifies an event logger. If `logger` is not `None`, it must be an object of type `logging.Logger`.  Otherwise, it will use a default module-level logger returned by `logging.getLogger(__name__)`.
+  * The `logger` parameter specifies an event logger. If `logger` is not `None`, it must be an object of class `logging.Logger` or of its customized subclass.  Otherwise, it will use a default module-level logger returned by `logging.getLogger(__name__)`.
   
   * `progress` determines the style of the progress bar displayed while downloading files. Possible values are `'mill'` and `'bar'`, and `'mill'` is the default.
   
   * The `num_pools` parameter has the same meaning as `num_pools` in `urllib3.PoolManager` and will eventually be passed to it. Specifically, `num_pools` specifies the number of connection pools to cache.
   
-  * `pool_maxsize` will be passed to the underlying `requests.adapters.HTTPAdapter`. It specifies the maximum number of connections to save that can be reused in the urllib3 connection pool.    
+  * `pool_maxsize` will be passed to the underlying `requests.adapters.HTTPAdapter`. It specifies the maximum number of connections to save that can be reused in the urllib3 connection pool.
 
 `
 BDownloader.downloads(path_urls)
