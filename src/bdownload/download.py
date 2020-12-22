@@ -9,7 +9,7 @@ import logging
 import sys
 import os
 import threading
-from concurrent.futures import ThreadPoolExecutor  # ,wait
+from concurrent.futures import ThreadPoolExecutor, CancelledError  # ,wait
 from math import trunc
 import re
 
@@ -39,8 +39,8 @@ with open(os.path.join(here, 'VERSION'), mode='r') as fd:
 REQUESTS_RETRIES_ON_EXCEPTION = 3
 
 
-def retry(exceptions, retries=3, backoff_factor=0.1, logger=None):
-    """A decorator that retries calling the wrapped function using an exponential backoff on exception.
+def retry_requests(exceptions, retries=3, backoff_factor=0.1, logger=None):
+    """A decorator that retries calling the wrapped ``requests``' function using an exponential backoff on exception.
 
     Args:
         exceptions (:obj:`Exception` or :obj:`tuple` of :obj:`Exception`\ s): The exceptions to check against.
@@ -66,24 +66,21 @@ def retry(exceptions, retries=3, backoff_factor=0.1, logger=None):
         @wraps(f)
         def f_retry(*args, **kwargs):
             ntries = 0
-            while ntries < retries:
+            while True:
                 try:
-                    return f(*args, **kwargs)
+                    r = f(*args, **kwargs)  # `r` is an instance of the ``requests.Response`` object
+                    r.raise_for_status()
+                    return r
                 except exceptions as e:
                     ntries += 1
+                    if ntries > retries:
+                        raise e
                     steps = random.randrange(1, 2**ntries)
                     backoff = steps * backoff_factor
 
                     logger.warning('{!r}, Retrying {}/{} in {:.2f} seconds...'.format(e, ntries, retries, backoff))
 
                     time.sleep(backoff)
-
-            try:
-                return f(*args, **kwargs)
-            except exceptions as e:
-                logger.warning('{!s}, Having retried {} times, finally failed...'.format(e, ntries))
-
-                raise e
 
         return f_retry  # true decorator
 
@@ -114,9 +111,9 @@ class RequestsSessionWrapper(Session):
         }
         self.headers = headers
 
-    @retry(requests.RequestException, retries=REQUESTS_RETRIES_ON_EXCEPTION)
+    @retry_requests(requests.RequestException, retries=REQUESTS_RETRIES_ON_EXCEPTION)
     def get(self, url, params=None, timeout=(3.2, 6), verify=True, **kwargs):
-        """Wrapper around ``requests.Session``'s `get` method decorated with the :func:`retry` decorator.
+        """Wrapper around ``requests.Session``'s `get` method decorated with the :func:`retry_requests` decorator.
         """
         return super(RequestsSessionWrapper, self).get(url, params=params, timeout=timeout, verify=verify, **kwargs)
 
@@ -329,6 +326,11 @@ class BDownloader(object):
                 "file1":{
                     "length": 2000,  # 0 means 'unkown', i.e. file size can't be pre-determined through any one of provided URLs
                     "resumable": True,
+                    "download_state": "inprocess",
+                    "cancelled_on_exception": False,
+                    "futures": [future1, future2],
+                    "tsk_num": 2,  # number of the `ranges` and `futures`
+                    "orig_path_url": ('file1', 'url1\turl2'),  # (path, url) as a subparameter passed to :meth:`downloads`
                     "urls":{"url1":{"accept_ranges": "bytes", "refcnt": 2}, "url2":{"accept_ranges": "none", "refcnt": 0}},
                     "ranges":{
                         "bytes=0-999": {
@@ -337,6 +339,7 @@ class BDownloader(object):
                             "offset": 0,  # current pointer position relative to 'start'(i.e. 0)
                             "start_time": 0,
                             "rt_dl_speed": 0,  # x seconds interval
+                            "download_state": "inprocess",
                            "future": future1,
                            "url": [url1]
                         },
@@ -360,6 +363,17 @@ class BDownloader(object):
             }
         }
     """
+    # Possible download states of the files and ranges
+    INPROCESS = 'inprocess'  # pending or downloading
+    FAILED = 'failed'
+    SUCCEEDED = 'succeeded'
+    CANCELLED = 'cancelled'
+
+    # _COMPLETED = [FAILED, SUCCEEDED]
+
+    _FILE_STATES = [INPROCESS, FAILED, SUCCEEDED]
+    _RANGE_STATES = [INPROCESS, FAILED, CANCELLED, SUCCEEDED]
+
     def __enter__(self):
         return self
 
@@ -404,9 +418,17 @@ class BDownloader(object):
             self.requester.headers.update({'User-Agent': user_agent})
 
         self.executor = ThreadPoolExecutor(max_workers)
+        self.progress_thread = None
         self.mgmnt_thread = None
+        self.all_done_event = threading.Event()  # Event signaling the completion of all of the download jobs
+        self.all_done = False  # Flag denoting the completion of all of the download jobs
+        # Flag indicating that **all** the download tasks have been submitted, i.e. no more downloads to be added
+        self.all_submitted = False
         self.stop = False   # Flag signaling waiting threads to exit
         self._dl_ctx = {"total_size": 0, "accurate": True, "files": {}, "futures": {}}  # see CTX structure definition
+        self.active_downloads_added = []
+        self.failed_downloads_on_addition = []
+        self.failed_downloads_in_running = []
 
         if logger is None:
             logger = logging.getLogger(__name__)
@@ -466,16 +488,15 @@ class BDownloader(object):
                 headers = {"Range": req_range_new}
                 try:
                     r = self.requester.get(url, headers=headers, allow_redirects=True, stream=True)
-                    r.raise_for_status()
                     if r.status_code == requests.codes.partial:
                         for chunk in r.iter_content(chunk_size=None):
-                            ctx_range['offset'] += len(chunk)
                             fd.write(chunk)
+                            ctx_range['offset'] += len(chunk)
                     else:
-                        msg = "Unexpected status code: {}, which should have been {}.".format(r.status_code, requests.codes.partial)
+                        msg = "Unexpected status code {}, which should have been {}.".format(r.status_code, requests.codes.partial)
                         raise requests.RequestException(msg)
                 except requests.RequestException as e:
-                    self._logger.error("Error while downloading {}(range:{}-{}/{}-{}): '{}'".format(
+                    self._logger.error("Failed to download {}(range:{}-{}/{}-{}): '{}'".format(
                         os.path.basename(path_name), range_start, range_end, ctx_range['start'], ctx_range['end'], str(e)))
                     raise
 
@@ -502,11 +523,10 @@ class BDownloader(object):
 
                 try:
                     r = self.requester.get(url, headers=headers, allow_redirects=True, stream=True)
-                    r.raise_for_status()
                     if r.status_code == status_code:  # in (requests.codes.ok, requests.codes.partial)
                         for chunk in r.iter_content(chunk_size=None):
-                            ctx_range['offset'] += len(chunk)
                             fd.write(chunk)
+                            ctx_range['offset'] += len(chunk)
 
                             if headers:
                                 range_start = ctx_range['start'] + ctx_range['offset']
@@ -516,7 +536,7 @@ class BDownloader(object):
                         break
                     else:
                         resume_no_support = True
-                        self._logger.error("Unexpected status code: {}, which should have been {}. This may be caused by unsupported range request.".format(r.status_code, status_code))
+                        self._logger.error("Unexpected status code {}, which should have been {}. This may be caused by unsupported range request.".format(r.status_code, status_code))
                         if tr < max_tries - 1:
                             self._logger.error("Retrying {}/{}...".format(tr + 1, max_tries - 1))
                             time.sleep(0.1)
@@ -589,7 +609,7 @@ class BDownloader(object):
         return fname[-250:].strip()
 
     def _build_ctx_internal(self, path_name, url):
-        path_url = (path_name, url)
+        path_url, orig_path_url = (path_name, url), (path_name, url)  # original `(path, url)`
 
         if not path_name:
             path_name = '.'
@@ -607,7 +627,8 @@ class BDownloader(object):
             file_path = path_head
 
         urls = url.split('\t')  # maybe TAB-separated URLs
-        ctx_file = {'length': 0, 'resumable': False, 'urls': {}, 'ranges': {}}
+        ctx_file = {'length': 0, 'resumable': False, 'download_state': self.INPROCESS, 'cancelled_on_exception': False,
+                    'futures': [], 'tsk_num': 0, 'orig_path_url': orig_path_url, 'urls': {}, 'ranges': {}}
 
         active_urls = []
         downloadable = False  # Must have at least one active URL to download the file
@@ -636,14 +657,15 @@ class BDownloader(object):
                         ctx_url['accept_ranges'] = accept_ranges
                         ctx_file['resumable'] = True
 
-                    content_disposition = r.headers.get('Content-Disposition')
-                    if content_disposition and not file_name:
-                        file_name = self._get_fname_from_hdr(content_disposition)
+                    if not file_name:
+                        content_disposition = r.headers.get('Content-Disposition')
+                        if content_disposition:
+                            file_name = self._get_fname_from_hdr(content_disposition)
 
                     downloadable = True
                     active_urls.append(url)
                 else:
-                    self._logger.warning("Status code: {}. Error while trying to determine the file size using '{}'".format(
+                    self._logger.warning("Unexpected status code {}: trying to determine the file size using '{}'".format(
                         r.status_code, url
                     ))
 
@@ -677,6 +699,8 @@ class BDownloader(object):
             else:
                 ranges = [(0, None)]
 
+            ctx_file['tsk_num'] = len(ranges)  # How many tasks to complete the download job of the file
+
             iter_url = self._pick_file_url(file_path_name)
             for start, end in ranges:
                 req_range = "bytes={}-{}".format(start, end)
@@ -687,23 +711,40 @@ class BDownloader(object):
                     'offset': 0,
                     'start_time': 0,
                     'rt_dl_speed': 0,
+                    'download_state': self.INPROCESS,
                     'url': next(iter_url)
                 })
 
             path_url = (file_path_name, '\t'.join(active_urls))
 
-        return downloadable, path_url
+        return downloadable, path_url, orig_path_url
 
     def _build_ctx(self, path_urls):
-        built, failed = [], []
+        active, active_orig = [], []
+        failed, failed_orig = [], []
         for path_name, url in path_urls:
-            downloadable, path_url = self._build_ctx_internal(path_name, url)
+            downloadable, path_url, orig_path_url = self._build_ctx_internal(path_name, url)
             if downloadable:
-                built.append(path_url)
+                active.append(path_url)
+                active_orig.append(orig_path_url)
             else:
                 failed.append(path_url)
+                failed_orig.append(orig_path_url)
 
-        return built, failed
+        return active, active_orig, failed, failed_orig
+
+    def _future_done_cb(self, future):
+        ctx_file = self._dl_ctx['files'][self._dl_ctx['futures'][future]['file']]
+        ctx_range = ctx_file['ranges'][self._dl_ctx['futures'][future]['range']]
+        try:
+            exception = future.exception()
+            if exception is None:
+                ctx_range['download_state'] = self.SUCCEEDED
+            else:
+                ctx_file['download_state'] = self.FAILED
+                ctx_range['download_state'] = self.FAILED
+        except CancelledError:
+            ctx_range['download_state'] = self.CANCELLED
 
     def _submit_dl_tasks(self, path_urls):
         for path_name, _ in path_urls:
@@ -712,17 +753,46 @@ class BDownloader(object):
             else:
                 tsk = self._get_remote_file_singlepart
 
-            for req_range, ctx_range in self._dl_ctx["files"][path_name]["ranges"].items():
+            ctx_file = self._dl_ctx["files"][path_name]
+            for req_range, ctx_range in ctx_file["ranges"].items():
                 future = self.executor.submit(tsk, path_name, req_range)
+                ctx_file["futures"].append(future)
                 ctx_range["future"] = future
                 ctx_range["start_time"] = time.time()
                 self._dl_ctx["futures"][future] = {
                     "file": path_name,
                     "range": req_range
                 }
+                future.add_done_callback(self._future_done_cb)
 
     def _is_all_done(self):
         return all(f.done() for f in self._dl_ctx['futures'])
+
+    def _state_mgmnt(self):
+        for ctx_path_name in self._dl_ctx['files'].values():
+            if ctx_path_name['download_state'] == self.FAILED and (not ctx_path_name['cancelled_on_exception']):
+                fs = ctx_path_name['futures']
+                fs_num = len(fs)
+                tsk_num = ctx_path_name['tsk_num']
+                if fs_num == tsk_num:  # Make sure that all the tasks of the file have been submitted
+                    # Cancel the download of the failed file
+                    for future in fs:
+                        future.cancel()
+
+                    ctx_path_name['cancelled_on_exception'] = True
+                    self.failed_downloads_in_running.append(ctx_path_name['orig_path_url'])
+
+    def _mgmnt_task(self):
+        while not self.all_done:
+            self._state_mgmnt()
+
+            if self.all_submitted and self._is_all_done():
+                self._state_mgmnt()
+
+                self.all_done_event.set()
+                self.all_done = True
+
+            time.sleep(0.1)
 
     def _calc_completed(self):
         completed = 0
@@ -734,7 +804,7 @@ class BDownloader(object):
 
         return completed
 
-    def _manage_tasks(self):
+    def _progress_task(self):
         total_size = self._dl_ctx['total_size']
 
         if self._dl_ctx['accurate']:
@@ -770,33 +840,42 @@ class BDownloader(object):
                 ('/path/to/**existed**-dir', ``'https://ghosthat.bar/foo/puretonecone81.xz\\thttps://tpot.horn/foo/puretonecone81.xz\\thttps://hawkhill.bar/foo/puretonecone81.xz'``)].
         """
         for chunk_path_urls in self.list_split(path_urls, chunk_size=2):
-            active_path_urls, failed_path_urls = self._build_ctx(chunk_path_urls)
-            if active_path_urls:
+            active, active_orig, _, failed_orig = self._build_ctx(chunk_path_urls)
+            if active:
+                if self.progress_thread is None:
+                    self.progress_thread = threading.Thread(target=self._progress_task)
+                    self.progress_thread.start()
+
                 if self.mgmnt_thread is None:
-                    self.mgmnt_thread = threading.Thread(target=self._manage_tasks)
+                    self.mgmnt_thread = threading.Thread(target=self._mgmnt_task)
                     self.mgmnt_thread.start()
 
-                self._submit_dl_tasks(active_path_urls)
+                self._submit_dl_tasks(active)
+                self.active_downloads_added.extend(active_orig)
 
-            if failed_path_urls:
-                self._logger.error('Failed to download: {!r}'.format(failed_path_urls))
-
-        #done, not_done = wait(self._dl_ctx["futures"].keys())
-        self._wait_for_all()
+            if failed_orig:
+                self.failed_downloads_on_addition.extend(failed_orig)
 
     def download(self, path_name, url):
         return self.downloads([(path_name, url)])
 
-    def _wait_for_all(self):
-        while True:
-            if not self._is_all_done():
-                time.sleep(0.1)
-            else:
-                break
+    def wait_for_all(self):
+        self.all_submitted = True
+        if self.active_downloads_added:
+            self.all_done_event.wait()
+
+        # return both the succeeded and failed downloads
+        succeeded = [path_url for path_url in self.active_downloads_added if path_url not in self.failed_downloads_in_running]
+        failed = self.failed_downloads_on_addition + self.failed_downloads_in_running
+
+        return succeeded, failed
 
     def close(self):
         self.executor.shutdown()
 
         self.stop = True
+        if self.progress_thread is not None:
+            self.progress_thread.join()
+
         if self.mgmnt_thread is not None:
             self.mgmnt_thread.join()

@@ -1,4 +1,3 @@
-from __future__ import print_function
 from __future__ import unicode_literals
 
 import sys
@@ -14,8 +13,5 @@ if __package__ is None and not hasattr(sys, 'frozen'):
 from bdownload.cli import main
 
 if __name__ == '__main__':
-    try:
-        main()
-    except Exception as e:
-        print('{}'.format(repr(e)))
-        sys.exit(-1)
+    main()
+

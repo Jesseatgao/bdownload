@@ -56,6 +56,7 @@ class TestMultiSourceDownload(unittest.TestCase):
 
         with BDownloader(max_workers=20, progress='bar') as downloader:
             downloader.download(file_path, file_url)
+            downloader.wait_for_all()
 
         hashf = hashlib.sha1()
         with open(file_path, mode='rb') as f:
@@ -70,6 +71,7 @@ class TestMultiSourceDownload(unittest.TestCase):
 
         with BDownloader(max_workers=20, progress='bar') as downloader:
             downloader.downloads(file_urls)
+            downloader.wait_for_all()
 
         for f in fs:
             hashf = hashlib.sha1()

@@ -70,13 +70,21 @@ BDownloader.download(path, url)
 
     Submit a single downloading job.
   
-  * Similar to `BDownloader.downloads()`, in fact it is just a special case of which, with [(_path_, _url_)] composed of the specified parameters as the input.
+  * Similar to `BDownloader.downloads()`, in fact it is just a special case of which, with [(`path`, `url`)] composed of the specified parameters as the input.
+
+`
+BDownloader.wait_for_all()
+`
+
+    Wait for all the downloading jobs to complete. Returns a 2-tuple of lists (_succeeded_, _failed_).
+    The first list _succeeded_ contains the originally passed (_path_, _url_)s that completed successfully, while
+    the second list _failed_ contains the raised and cancelled ones.
 
 `
 BDownloader.close()
 `
 
-    Wait for the jobs done and perform the cleanup. 
+    Shut down and perform the cleanup.
 
 #### Examples
 
@@ -106,6 +114,7 @@ class TestBDownloader(unittest.TestCase):
 
         with BDownloader(max_workers=20, progress='mill') as downloader:
             downloader.download(file_path, file_url)
+            downloader.wait_for_all()
 
         hashf = hashlib.sha1()
         with open(file_path, mode='rb') as f:
@@ -157,6 +166,7 @@ class TestBDownloader(unittest.TestCase):
 
         with BDownloader(max_workers=20, progress='mill') as downloader:
             downloader.downloads(file_urls)
+            downloader.wait_for_all()
 
         for f in files:
             hashf = hashlib.sha1()
@@ -181,6 +191,7 @@ bdownload [-h] [-o OUTPUT [OUTPUT ...]] -L URLS [URLS ...] [-D DIR]
                [-s CHUNK_SIZE] [-e COOKIE] [--user-agent USER_AGENT]
                [-P {mill,bar}] [--num-pools NUM_POOLS]
                [--pool-size POOL_SIZE]
+               [-l {debug,info,warning,error,critical}]
 ```
 
 #### Description
@@ -236,3 +247,8 @@ bdownload [-h] [-o OUTPUT [OUTPUT ...]] -L URLS [URLS ...] [-D DIR]
 `--pool-size POOL_SIZE`
 
     max number of connections in the pool [default: 20]
+
+`-l {debug,info,warning,error,critical}, --log-level {debug,info,warning,error,critical}`
+
+    logger level [default: warning]
+

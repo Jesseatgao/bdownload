@@ -4,6 +4,7 @@
 """
 from __future__ import absolute_import
 from __future__ import unicode_literals
+from __future__ import print_function
 
 import sys
 from platform import system
@@ -188,13 +189,16 @@ def _arg_parser():
     parser.add_argument('--pool-size', dest='pool_size', default=DEFAULT_POOL_SIZE, type=int,
                         help='max number of connections in the pool [default: {}]'.format(DEFAULT_POOL_SIZE))
 
+    parser.add_argument('-l', '--log-level', dest='log_level', default='warning',
+                        choices=['debug', 'info', 'warning', 'error', 'critical'], help='logger level [default: warning]')
+
     return parser
 
 
 def main():
     """Collect the command-line arguments from ``sys.argv``, parse and do the downloading as specified.
     """
-    logging.basicConfig()
+    exit_code = 0
 
     try:
         unicode
@@ -210,6 +214,9 @@ def main():
 
     args = _arg_parser().parse_args()
 
+    log_level = getattr(logging, args.log_level.upper())
+    logging.basicConfig(level=log_level)
+
     files = ['']*len(args.urls) if args.output is None else args.output+['']*(len(args.urls)-len(args.output))
     if len(files) > len(args.urls):
         logging.warning('The specified OUTPUTs and URLs don\'t align, extra OUTPUTs will be ignored: {!r}'.format(args.output[len(args.urls):]))
@@ -217,7 +224,23 @@ def main():
     path_files = [abspath(join(args.dir, f)) for f in files]
     path_urls = list(zip(path_files, args.urls))
 
-    with BDownloader(max_workers=args.max_workers, min_split_size=args.min_split_size, chunk_size=args.chunk_size,
-                     proxy=args.proxy, cookies=args.cookie, user_agent=args.user_agent, progress=args.progress,
-                     num_pools=args.num_pools, pool_maxsize=args.pool_size) as downloader:
-        downloader.downloads(path_urls)
+    succeeded, failed = [], []
+    try:
+        with BDownloader(max_workers=args.max_workers, min_split_size=args.min_split_size, chunk_size=args.chunk_size,
+                         proxy=args.proxy, cookies=args.cookie, user_agent=args.user_agent, progress=args.progress,
+                         num_pools=args.num_pools, pool_maxsize=args.pool_size) as downloader:
+            downloader.downloads(path_urls)
+            succeeded, failed = downloader.wait_for_all()
+    except Exception:
+        exit_code = -1
+
+    if succeeded:
+        print('Succeeded in downloading: {!r}'.format(succeeded))
+    if failed:
+        exit_code = -1
+        print('Failed to download: {!r}'.format(failed))
+
+    fin_msg = '\nFile(s) downloading was successfully completed!' if not exit_code else '\nFile(s) downloading was aborted with erros!'
+    print(fin_msg)
+
+    sys.exit(exit_code)
