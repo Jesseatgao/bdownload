@@ -36,7 +36,16 @@ with open(os.path.join(here, 'VERSION'), mode='r') as fd:
 # retry configuration
 
 #: int: Number of retries on exception wrapping around the ``requests.Session``'s methods.
-REQUESTS_RETRIES_ON_EXCEPTION = 3
+REQUESTS_RETRIES_ON_METHOD_EXCEPTION = 3
+
+#: int: Number of retries on exception set through ``urllib3``'s `Retry` mechanism.
+URLLIB3_RETRIES_ON_EXCEPTION = 3
+
+#: int: Number of retries on exceptions raised while streaming the request content.
+REQUESTS_RETRIES_ON_STREAM_EXCEPTION = 10
+
+#: float: Default retry backoff factor.
+RETRY_BACKOFF_FACTOR = 0.1
 
 
 def retry_requests(exceptions, retries=3, backoff_factor=0.1, logger=None):
@@ -94,7 +103,7 @@ class RequestsSessionWrapper(Session):
         The retry mechanism here is independent from that of from ``urllib3`` (see :func:`requests_retry_session`).
         Nevertheless, they together determine the number of the total retries using the following formula:
 
-        (:const:`REQUESTS_RETRIES_ON_EXCEPTION` + 1) * (`retries` passed to :func:`requests_retry_session`).
+        (:const:`REQUESTS_RETRIES_ON_METHOD_EXCEPTION` + 1) * (`retries` passed to :func:`requests_retry_session`).
     """
     def __init__(self):
         """Initialize the `Session` with default HTTP headers.
@@ -111,7 +120,7 @@ class RequestsSessionWrapper(Session):
         }
         self.headers = headers
 
-    @retry_requests(requests.RequestException, retries=REQUESTS_RETRIES_ON_EXCEPTION)
+    @retry_requests(requests.RequestException, backoff_factor=RETRY_BACKOFF_FACTOR, retries=REQUESTS_RETRIES_ON_METHOD_EXCEPTION)
     def get(self, url, params=None, timeout=(3.2, 6), verify=True, **kwargs):
         """Wrapper around ``requests.Session``'s `get` method decorated with the :func:`retry_requests` decorator.
         """
@@ -409,7 +418,9 @@ class BDownloader(object):
             pool_maxsize (int): `pool_maxsize` will be passed to the underlying ``requests.adapters.HTTPAdapter``.
                 It specifies the maximum number of connections to save that can be reused in the urllib3 connection pool.
         """
-        self.requester = requests_retry_session(num_pools=num_pools, pool_maxsize=pool_maxsize)
+        self.requester = requests_retry_session(retries=URLLIB3_RETRIES_ON_EXCEPTION,
+                                                backoff_factor=RETRY_BACKOFF_FACTOR,
+                                                num_pools=num_pools, pool_maxsize=pool_maxsize)
         if proxy is not None:
             self.requester.proxies = dict(http=proxy, https=proxy)
         if cookies is not None:
@@ -420,14 +431,20 @@ class BDownloader(object):
         self.executor = ThreadPoolExecutor(max_workers)
         self.progress_thread = None
         self.mgmnt_thread = None
-        self.all_done_event = threading.Event()  # Event signaling the completion of all of the download jobs
-        self.all_done = False  # Flag denoting the completion of all of the download jobs
+        self.all_done_event = threading.Event()  # Event signaling the completion of all the download jobs
+        self.all_done = False  # Flag denoting the completion of all the download jobs
         # Flag indicating that **all** the download tasks have been submitted, i.e. no more downloads to be added
         self.all_submitted = False
         self.stop = False   # Flag signaling waiting threads to exit
         self._dl_ctx = {"total_size": 0, "accurate": True, "files": {}, "futures": {}}  # see CTX structure definition
+
+        # list: A downloadable subset of all the `(path, url)`\ s that were passed to :meth:`BDownloader.download` or
+        # :meth:`BDownloader.downloads`.
         self.active_downloads_added = []
+        # list: The non-downloadable `(path, url)`\ s that were filtered out before downloading actually begins.
+        # Together with :attr:`BDownloader.active_downloads_added`, they form the whole of the input downloads.
         self.failed_downloads_on_addition = []
+        # list: A subset of :attr:`BDownloader.active_downloads_added`, the downloading of which aborted abnormally.
         self.failed_downloads_in_running = []
 
         if logger is None:
@@ -477,38 +494,54 @@ class BDownloader(object):
         ctx_range = self._dl_ctx['files'][path_name]['ranges'][req_range]
         url = ctx_range['url'][0]
 
-        # request start position and end position, maybe resuming from a previous failed request
-        range_start, range_end = ctx_range['start'] + ctx_range['offset'], ctx_range['end']
-        ranges = self.calc_req_ranges(range_end - range_start + 1, self.chunk_size, range_start)
-        with open(path_name, mode='r+b') as fd:
-            fd.seek(range_start)
+        max_retries = REQUESTS_RETRIES_ON_STREAM_EXCEPTION
 
-            for start, end in ranges:
-                req_range_new = "bytes={}-{}".format(start, end)
-                headers = {"Range": req_range_new}
-                try:
+        with open(path_name, mode='r+b') as fd:
+            for tr in range(max_retries+1):
+                # request start position and end position, maybe resuming from a previous failed request
+                range_start, range_end = ctx_range['start'] + ctx_range['offset'], ctx_range['end']
+                ranges = self.calc_req_ranges(range_end - range_start + 1, self.chunk_size, range_start)
+
+                fd.seek(range_start)
+
+                for start, end in ranges:
+                    req_range_new = "bytes={}-{}".format(start, end)
+                    headers = {"Range": req_range_new}
+
                     r = self.requester.get(url, headers=headers, allow_redirects=True, stream=True)
                     if r.status_code == requests.codes.partial:
-                        for chunk in r.iter_content(chunk_size=None):
-                            fd.write(chunk)
-                            ctx_range['offset'] += len(chunk)
+                        try:
+                            for chunk in r.iter_content(chunk_size=None):
+                                fd.write(chunk)
+                                ctx_range['offset'] += len(chunk)
+                        except requests.RequestException as e:
+                            self._logger.error("Error while downloading {}(range:{}-{}/{}-{}): '{}'".format(
+                                os.path.basename(path_name), start, end, ctx_range['start'],
+                                ctx_range['end'], str(e)))
+
+                            break
                     else:
                         msg = "Unexpected status code {}, which should have been {}.".format(r.status_code, requests.codes.partial)
+                        self._logger.error(msg)
                         raise requests.RequestException(msg)
-                except requests.RequestException as e:
-                    self._logger.error("Failed to download {}(range:{}-{}/{}-{}): '{}'".format(
-                        os.path.basename(path_name), range_start, range_end, ctx_range['start'], ctx_range['end'], str(e)))
-                    raise
+                else:
+                    break
+
+                if tr < max_retries:
+                    self._logger.error("Retrying {}/{}...".format(tr+1, max_retries))
+                    time.sleep(0.1)  # FIXME: backoff
+            else:
+                raise
 
     def _get_remote_file_singlepart(self, path_name, req_range):
         ctx_range = self._dl_ctx['files'][path_name]['ranges'][req_range]
         url = ctx_range['url'][0]
 
-        max_tries = 10
-        resume_no_support = False  # In case the server responses with no-support status against a range request
+        max_retries = REQUESTS_RETRIES_ON_STREAM_EXCEPTION
+        range_req_satisfiable = True  # The serve may choose to ignore the `Range` header
         with open(path_name, mode='r+b') as fd:
-            for tr in range(max_tries):
-                if self._is_download_resumable(path_name) and not resume_no_support:
+            for tr in range(max_retries+1):
+                if self._is_download_resumable(path_name) and range_req_satisfiable and ctx_range['offset']:
                     # request start position and end position(which here we don't care about), maybe resuming from a previous failed request
                     range_start = ctx_range['start'] + ctx_range['offset']
                     req_range_new = "bytes={}-{}".format(range_start, '')
@@ -521,37 +554,39 @@ class BDownloader(object):
 
                 fd.seek(range_start)
 
-                try:
-                    r = self.requester.get(url, headers=headers, allow_redirects=True, stream=True)
-                    if r.status_code == status_code:  # in (requests.codes.ok, requests.codes.partial)
+                r = self.requester.get(url, headers=headers, allow_redirects=True, stream=True)
+                if r.status_code == status_code:  # in (requests.codes.ok, requests.codes.partial)
+                    try:
                         for chunk in r.iter_content(chunk_size=None):
                             fd.write(chunk)
                             ctx_range['offset'] += len(chunk)
 
                             if headers:
                                 range_start = ctx_range['start'] + ctx_range['offset']
-                                req_range_new = "bytes={}-{}".format(range_start, '')
-                                headers['Range'] = req_range_new
 
                         break
-                    else:
-                        resume_no_support = True
-                        self._logger.error("Unexpected status code {}, which should have been {}. This may be caused by unsupported range request.".format(r.status_code, status_code))
-                        if tr < max_tries - 1:
-                            self._logger.error("Retrying {}/{}...".format(tr + 1, max_tries - 1))
-                            time.sleep(0.1)
-                except requests.RequestException as e:
-                    ctx_file = self._dl_ctx['files'][path_name]
-                    if ctx_file['length']:
-                        range_end = file_end = ctx_file['length']
-                    else:
-                        range_end = file_end = ''
+                    except requests.RequestException as e:
+                        ctx_file = self._dl_ctx['files'][path_name]
+                        if ctx_file['length']:
+                            range_end = file_end = ctx_file['length']
+                        else:
+                            range_end = file_end = ''
 
-                    self._logger.error("Error while downloading {}(range:{}-{}/{}-{}): '{}'".format(
-                        os.path.basename(path_name), range_start, range_end, ctx_range['start'], file_end, str(e)))
-                    if tr < max_tries - 1:
-                        self._logger.error("Retrying {}/{}...".format(tr + 1, max_tries - 1))
-                        time.sleep(0.1)
+                        self._logger.error("Error while downloading {}(range:{}-{}/{}-{}): '{}'".format(
+                            os.path.basename(path_name), range_start, range_end, ctx_range['start'], file_end, str(e)))
+                        if tr < max_retries:
+                            self._logger.error("Retrying {}/{}...".format(tr + 1, max_retries))
+                            time.sleep(0.1)
+                else:
+                    range_req_satisfiable = False
+                    msg = "Unexpected status code {}, which should have been {}. This may be caused by unsupported range request.".format(r.status_code, status_code)
+                    self._logger.error(msg)
+                    if r.status_code == requests.codes.ok:  # In case the server responds with a '200' status code against a range request
+                        if tr < max_retries:
+                            self._logger.error("Retrying {}/{}...".format(tr + 1, max_retries))
+                            time.sleep(0.1)
+                    else:
+                        raise requests.RequestException(msg)
             else:
                 raise
 
@@ -823,7 +858,8 @@ class BDownloader(object):
 
             time.sleep(0.1)
         else:
-            progress_bar.last_progress = self._dl_ctx['total_size'] if self._dl_ctx['accurate'] else self._calc_completed()
+            progress_bar.last_progress = self._dl_ctx['total_size'] \
+                if self._dl_ctx['accurate'] and not self.failed_downloads_in_running else self._calc_completed()
             progress_bar.expected_size = self._dl_ctx['total_size']
             progress_bar.done()
 
