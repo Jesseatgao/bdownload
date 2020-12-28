@@ -51,6 +51,9 @@ RETRY_BACKOFF_FACTOR = 0.1
 def retry_requests(exceptions, retries=3, backoff_factor=0.1, logger=None):
     """A decorator that retries calling the wrapped ``requests``' function using an exponential backoff on exception.
 
+    The retry attempt will be activated in the event of `exceptions` being caught and for all the bad status codes (i.e.
+    codes ranging from 400 to 600).
+
     Args:
         exceptions (:obj:`Exception` or :obj:`tuple` of :obj:`Exception`\ s): The exceptions to check against.
         retries (int): Number of retries when `exceptions` occurred.
@@ -120,27 +123,54 @@ class RequestsSessionWrapper(Session):
         }
         self.headers = headers
 
-    @retry_requests(requests.RequestException, backoff_factor=RETRY_BACKOFF_FACTOR, retries=REQUESTS_RETRIES_ON_METHOD_EXCEPTION)
-    def get(self, url, params=None, timeout=(3.2, 6), verify=True, **kwargs):
+    @retry_requests(requests.RequestException,
+                    retries=REQUESTS_RETRIES_ON_METHOD_EXCEPTION, backoff_factor=RETRY_BACKOFF_FACTOR)
+    def get(self, url, timeout=(3.05, 6), **kwargs):
         """Wrapper around ``requests.Session``'s `get` method decorated with the :func:`retry_requests` decorator.
+
+        Args:
+            url: URL for the file to download from.
+            timeout (2-tuple of int): Timeout values for both the ``connect`` and the ``read`` timeouts, respectively.
+                The ``connect`` timeout value defaults to 3.05 seconds, and the ``read`` timeout to 6 seconds.
+            **kwargs: Same arguments as that ``requests.Session.get`` takes.
+
+        Returns:
+            ``requests.Response``: The response to the HTTP ``GET`` request.
         """
-        return super(RequestsSessionWrapper, self).get(url, params=params, timeout=timeout, verify=verify, **kwargs)
+        return super(RequestsSessionWrapper, self).get(url, timeout=timeout, **kwargs)
 
 
 def requests_retry_session(
         retries=3,
         backoff_factor=0.1,
-        status_forcelist=(429, 500, 502, 503, 504),
+        status_forcelist=None,
         session=None,
         num_pools=20,
         pool_maxsize=20
 ):
-    """
+    """Create an instance of the class :class:`RequestsSessionWrapper` by default.
+
+    Aside from the retry mechanism implemented by the wrapper decorator, the created session also leverages the built-in
+    retries bound to ``urllib3``. For how they cooperate to determine the total retries, see :class:`RequestsSessionWrapper`.
+
+    Args:
+        retries (int): Maximum number of retry attempts allowed on errors and interested status codes, which will apply
+            to the retry logic of the underlying ``urllib3``.
+        backoff_factor (float): The backoff factor to apply between retries.
+        status_forcelist (set of int): A set of HTTP status codes that a retry should be enforced on. The default status
+            forcelist shall be ``{413, 429, 500, 502, 503, 504}`` if not given.
+        session (:obj:`requests.Session`): An instance of the class ``requests.Session`` or its customized subclass.
+            When not provided, it will use :class:`RequestsSessionWrapper` to create by default.
+        num_pools (int): The number of connection pools to cache, which has the same meaning as `num_pools` in
+            ``urllib3.PoolManager`` and will eventually be passed to it.
+        pool_maxsize (int): The maximum number of connections to save that can be reused in the ``urllib3`` connection
+            pool, which will be passed to the underlying ``requests.adapters.HTTPAdapter``.
+
     References:
          https://www.peterbe.com/plog/best-practice-with-retries-with-requests
     """
-    # session = session or requests.Session()
     session = session or RequestsSessionWrapper()
+    status_forcelist = status_forcelist or {413, 429, 500, 502, 503, 504}
 
     max_retries = Retry(
         total=retries,
