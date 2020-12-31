@@ -219,7 +219,7 @@ def main():
 
     files = ['']*len(args.urls) if args.output is None else args.output+['']*(len(args.urls)-len(args.output))
     if len(files) > len(args.urls):
-        logging.warning('The specified OUTPUTs and URLs don\'t align, extra OUTPUTs will be ignored: {!r}'.format(args.output[len(args.urls):]))
+        print('The specified OUTPUTs and URLs don\'t align, extra OUTPUTs will be ignored: {!r}'.format(args.output[len(args.urls):]))
 
     path_files = [abspath(join(args.dir, f)) for f in files]
     path_urls = list(zip(path_files, args.urls))
@@ -231,7 +231,8 @@ def main():
                          num_pools=args.num_pools, pool_maxsize=args.pool_size) as downloader:
             downloader.downloads(path_urls)
             succeeded, failed = downloader.wait_for_all()
-    except Exception:
+    except Exception as e:
+        print('{}'.format(repr(e)))
         exit_code = -1
 
     if succeeded:

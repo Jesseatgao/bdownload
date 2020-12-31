@@ -47,6 +47,9 @@ REQUESTS_RETRIES_ON_STREAM_EXCEPTION = 10
 #: float: Default retry backoff factor.
 RETRY_BACKOFF_FACTOR = 0.1
 
+#: set: Default status codes to retry on intended for the underlying ``urllib3``.
+URLLIB3_RETRY_STATUS_CODES = frozenset([413, 429, 500, 502, 503, 504])
+
 
 def retry_requests(exceptions, retries=3, backoff_factor=0.1, logger=None):
     """A decorator that retries calling the wrapped ``requests``' function using an exponential backoff on exception.
@@ -109,19 +112,9 @@ class RequestsSessionWrapper(Session):
         (:const:`REQUESTS_RETRIES_ON_METHOD_EXCEPTION` + 1) * (`retries` passed to :func:`requests_retry_session`).
     """
     def __init__(self):
-        """Initialize the `Session` with default HTTP headers.
-
-        The HTTP header ``User-Agent`` is set to a default value of `bdownload/VERSION`, with `VERSION` being replaced
-        by the package's version number.
+        """Initialize the `Session` explicitly.
         """
         super(RequestsSessionWrapper, self).__init__()
-
-        default_user_agent = 'bdownload/{}'.format(__version__)
-        headers = {
-            'User-Agent': default_user_agent,
-            # 'Accept-Encoding': 'gzip, identity, deflate, br, *'
-        }
-        self.headers = headers
 
     @retry_requests(requests.RequestException,
                     retries=REQUESTS_RETRIES_ON_METHOD_EXCEPTION, backoff_factor=RETRY_BACKOFF_FACTOR)
@@ -140,25 +133,22 @@ class RequestsSessionWrapper(Session):
         return super(RequestsSessionWrapper, self).get(url, timeout=timeout, **kwargs)
 
 
-def requests_retry_session(
-        retries=3,
-        backoff_factor=0.1,
-        status_forcelist=None,
-        session=None,
-        num_pools=20,
-        pool_maxsize=20
-):
-    """Create an instance of the class :class:`RequestsSessionWrapper` by default.
+def requests_retry_session(retries=3, backoff_factor=0.1, status_forcelist=None,
+                           session=None, num_pools=20, pool_maxsize=20):
+    """Create a session object of the class :class:`RequestsSessionWrapper` by default.
 
     Aside from the retry mechanism implemented by the wrapper decorator, the created session also leverages the built-in
     retries bound to ``urllib3``. For how they cooperate to determine the total retries, see :class:`RequestsSessionWrapper`.
+
+    The HTTP header ``User-Agent`` of the session is set to a default value of `bdownload/VERSION`, with `VERSION` being
+    replaced by the package's version number.
 
     Args:
         retries (int): Maximum number of retry attempts allowed on errors and interested status codes, which will apply
             to the retry logic of the underlying ``urllib3``.
         backoff_factor (float): The backoff factor to apply between retries.
         status_forcelist (set of int): A set of HTTP status codes that a retry should be enforced on. The default status
-            forcelist shall be ``{413, 429, 500, 502, 503, 504}`` if not given.
+            forcelist shall be :const:`URLLIB3_RETRY_STATUS_CODES` if not given.
         session (:obj:`requests.Session`): An instance of the class ``requests.Session`` or its customized subclass.
             When not provided, it will use :class:`RequestsSessionWrapper` to create by default.
         num_pools (int): The number of connection pools to cache, which has the same meaning as `num_pools` in
@@ -166,12 +156,23 @@ def requests_retry_session(
         pool_maxsize (int): The maximum number of connections to save that can be reused in the ``urllib3`` connection
             pool, which will be passed to the underlying ``requests.adapters.HTTPAdapter``.
 
+    Returns:
+        ``requests.Session``: The session instance with retry capability.
+
     References:
          https://www.peterbe.com/plog/best-practice-with-retries-with-requests
     """
     session = session or RequestsSessionWrapper()
-    status_forcelist = status_forcelist or {413, 429, 500, 502, 503, 504}
+    status_forcelist = status_forcelist or URLLIB3_RETRY_STATUS_CODES
 
+    # Initialize the session with default HTTP headers
+    default_user_agent = 'bdownload/{}'.format(__version__)
+    headers = {
+        'User-Agent': default_user_agent,
+    }
+    session.headers = headers
+
+    # Initialize the built-in retry mechanism and the connection pools
     max_retries = Retry(
         total=retries,
         read=retries,
@@ -182,12 +183,19 @@ def requests_retry_session(
     adapter = HTTPAdapter(max_retries=max_retries, pool_connections=num_pools, pool_maxsize=pool_maxsize, pool_block=True)
     session.mount('http://', adapter)
     session.mount('https://', adapter)
+
     return session
 
 
 def _build_cookiejar_from_kvp(key_values):
-    """build a CookieJar from key-value pairs of the form "cookie_key=cookie_value cookie_key2=cookie_value2".
+    """Build a CookieJar from cookies in the form of key/value pairs.
 
+    Args:
+        key_values (str): The cookies must take the form of ``'cookie_key=cookie_value'``, with multiple pairs separated
+            by space character if applicable, e.g. ``'key1=val1 key2=val2'``.
+
+    Returns:
+        ``requests.cookies.RequestsCookieJar``: The built CookieJar for ``requests`` sessions.
     """
     if key_values:
         cookiejar = requests.cookies.RequestsCookieJar()
@@ -200,12 +208,19 @@ def _build_cookiejar_from_kvp(key_values):
 
 
 def unquote_unicode(string):
-    """
+    """Unquote a percent-encoded string.
+
+    Args:
+        string (str): A %xx and %uxxxx -encoded string.
+
+    Returns:
+        str: The unquoted unicode string.
+
     References:
         https://stackoverflow.com/questions/300445
     """
     try:
-        if isinstance(string, unicode):
+        if isinstance(string, unicode):  # python 2.7
             string = string.encode('utf-8')
         string = unquote(string)  # handle two-digit %hh components first
         parts = string.split(u'%u'.encode('utf-8'))
@@ -213,30 +228,38 @@ def unquote_unicode(string):
         string = unquote(string)  # handle two-digit %hh components first
         parts = string.split('%u')
 
-    if len(parts) == 1:
-        return string
-    res = [parts[0]]
-    for part in parts[1:]:
-        try:
-            digits = part[:4].lower()
-            if len(digits) < 4:
-                raise ValueError
-            ch = unichr(int(digits, 16))
-            if (
-                not res[-1] and
-                u'\uDC00' <= ch <= u'\uDFFF' and
-                u'\uD800' <= res[-2] <= u'\uDBFF'
-            ):
-                # UTF-16 surrogate pair, replace with single non-BMP codepoint
-                res[-2] = (res[-2] + ch).encode(
-                    'utf-16', 'surrogatepass').decode('utf-16')
-            else:
-                res.append(ch)
-            res.append(part[4:])
-        except ValueError:
-            res.append(u'%u')
-            res.append(part)
-    return u''.join(res)
+    if len(parts) > 1:
+        res = [parts[0]]
+        for part in parts[1:]:
+            try:
+                digits = part[:4].lower()
+                if len(digits) < 4:
+                    raise ValueError
+                ch = unichr(int(digits, 16))
+                if (
+                    not res[-1] and
+                    u'\uDC00' <= ch <= u'\uDFFF' and
+                    u'\uD800' <= res[-2] <= u'\uDBFF'
+                ):
+                    # UTF-16 surrogate pair, replace with single non-BMP codepoint
+                    res[-2] = (res[-2] + ch).encode(
+                        'utf-16', 'surrogatepass').decode('utf-16')
+                else:
+                    res.append(ch)
+                res.append(part[4:])
+            except ValueError:
+                res.append(u'%u')
+                res.append(part)
+
+        string = u''.join(res)
+
+    try:
+        if not isinstance(string, unicode):  # python 2.7
+            string = string.decode("utf-8")
+    except NameError:
+        pass
+
+    return string
 
 
 class MillProgress(object):
@@ -491,6 +514,16 @@ class BDownloader(object):
 
     @staticmethod
     def calc_req_ranges(req_len, split_size, req_start=0):
+        """Split the request `req_len` into chunks of the size `split_size` starting from the point `req_start`.
+
+        Args:
+            req_len (int): The length of the request to split.
+            split_size (int): The size of each split chunk.
+            req_start (int): The start position to split from.
+
+        Returns:
+            list of tuple: The list of ranges in the form of 2-tuple ``'(start ,end)'``.
+        """
         ranges = []
         range_cnt = req_len // split_size
         for piece_id in range(range_cnt):
@@ -508,19 +541,57 @@ class BDownloader(object):
 
     @staticmethod
     def list_split(li, chunk_size=5):
-        """Break the list `li` into chunks of size `chunk_size`"""
+        """Break a list into chunks.
+
+        Args:
+            li (list): The list to split.
+            chunk_size (int): The size of the resultant chunk list.
+
+        Yields:
+            list: The next chunk of the split list `li`.
+        """
         for i in range(0, len(li), chunk_size):
             yield li[i:i+chunk_size]
 
     def _is_parallel_downloadable(self, path_name):
+        """Check if the file can be downloaded in parallel, i.e. using multi-threads to download the file pieces simultaneously.
+
+        Args:
+            path_name (str): The full path name of the file to be downloaded.
+
+        Returns:
+            bool: ``True`` if the file length is known and the server accepts its range requests, otherwise ``False``.
+        """
         ctx_file = self._dl_ctx['files'][path_name]
         parallel = True if ctx_file['length'] and ctx_file['resumable'] else False
         return parallel
 
     def _is_download_resumable(self, path_name):
+        """Check if the current download of the file can be resumed from the point of last interruption through retrying.
+
+        Args:
+            path_name (str): The full path name of the file being downloaded.
+
+        Returns:
+            bool: ``True`` if the server accepts range requests for the file, otherwise ``False``.
+        """
         return True if self._dl_ctx['files'][path_name]['resumable'] else False
 
     def _get_remote_file_multipart(self, path_name, req_range):
+        """The worker thread body for downloading an assigned piece of a file.
+
+        Args:
+            path_name (str): The full path name of the file to be downloaded.
+            req_range (str): A chunk of the file `path_name` as a range request of the form ``'bytes=start-end'``.
+
+        Returns:
+            None.
+
+        Raises:
+            requests.RequestException: Raised when connect timeouts, read timeouts, failed connections or bad status
+                codes occurred and the retries is exhausted.
+            OSError: Raised when file operations failed.
+        """
         ctx_range = self._dl_ctx['files'][path_name]['ranges'][req_range]
         url = ctx_range['url'][0]
 
@@ -570,6 +641,20 @@ class BDownloader(object):
             raise
 
     def _get_remote_file_singlepart(self, path_name, req_range):
+        """The worker thread body for downloading the whole of a file, as opposed to :meth:`_get_remote_file_multipart`.
+
+        Args:
+            path_name (str): The full path name of the file to be downloaded.
+            req_range (str): The whole chunk of the file `path_name` as a mock range request of the form ``'bytes=0-None'``.
+
+        Returns:
+            None.
+
+        Raises:
+            requests.RequestException: Raised when connect timeouts, read timeouts, failed connections or bad status
+                codes occurred and the retries is exhausted.
+            OSError: Raised when file operations failed.
+        """
         ctx_range = self._dl_ctx['files'][path_name]['ranges'][req_range]
         url = ctx_range['url'][0]
 
@@ -633,7 +718,13 @@ class BDownloader(object):
             raise
 
     def _pick_file_url(self, path_name):
-        """Select one URL from multiple sources according to max-connection-per-server etc.
+        """Select one URL from the multiple sources of the file to download from.
+
+        Args:
+            path_name (str): The full path name of the file to be downloaded.
+
+        Yields:
+            list: A list of URL(s) to download the file from using a strategy of ``Round Robin``.
         """
         STRIPE_WIDTH = 3
 
@@ -656,24 +747,43 @@ class BDownloader(object):
 
     @staticmethod
     def _get_fname_from_hdr(content_disposition):
-        """"Get the file name from the Content-Disposition field of the HTTP header.
+        """"Get the file name from the HTTP response header.
+
+        Args:
+            content_disposition (str): Content of the ``Content-Disposition`` field of the response header.
+
+        Returns:
+            str: The extracted file name.
 
         References:
             https://stackoverflow.com/questions/37060344
         """
         fname = re.findall(r"filename\*=([^;]+)", content_disposition, flags=re.IGNORECASE)
-        if not fname:
-            fname = re.findall("filename=([^;]+)", content_disposition, flags=re.IGNORECASE)
-        if "utf-8''" in fname[0].lower():
-            fname = re.sub("utf-8''", '', fname[0], flags=re.IGNORECASE)
-            fname = unquote_unicode(fname)
+        if fname:
+            if "utf-8''" in fname[0].lower():
+                fname = re.sub("utf-8''", '', fname[0], flags=re.IGNORECASE)
+                fname = unquote_unicode(fname)
+            else:
+                fname = fname[0]
         else:
-            fname = fname[0]
+            fname = re.findall("filename=([^;]+)", content_disposition, flags=re.IGNORECASE)
+            if fname:
+                fname = fname[0]
 
-        return fname.strip().strip('"')
+        fname = fname.strip().strip('"') if fname else ''
+
+        return fname
 
     @staticmethod
     def _get_fname_from_url(url):
+        """Generate a file name from the download URL.
+
+        Args:
+            url (str): A URL referencing the intended file.
+
+        Returns:
+            str: The automatically generated file name.
+        """
         parsed = urlparse(url)
         unquoted_path = unquote_unicode(parsed.path)
         fname = os.path.basename(unquoted_path)
@@ -686,6 +796,21 @@ class BDownloader(object):
         return fname[-250:].strip()
 
     def _build_ctx_internal(self, path_name, url):
+        """The helper method that actually does the build of the downloading context of the file.
+
+        Args:
+            path_name (str): The full path name of the file to be downloaded.
+            url (str): The URL referencing the target file.
+
+        Returns:
+            tuple: A 3-tuple ``'(downloadable, (path, url), (orig_path, orig_url))'``, where the ``downloadable``
+                indicates whether or not (``True`` or ``False``) there is at least one active URL to download the file,
+                ``(path, url)`` denotes the converted full pathname and the URL that consists only of active URLs, and
+                ``(orig_path, orig_url)`` denotes the originally input pathname and URL.
+
+        Raises:
+            OSError: Raised when file (and path) operations failed.
+        """
         path_url, orig_path_url = (path_name, url), (path_name, url)  # original `(path, url)`
 
         if not path_name:
@@ -798,6 +923,16 @@ class BDownloader(object):
         return downloadable, path_url, orig_path_url
 
     def _build_ctx(self, path_urls):
+        """Build the context for downloading the file(s).
+
+        Args:
+            path_urls (list of tuple): Paths and URLs for the file(s) to be downloaded, see :meth:`downloads` for details.
+
+        Returns:
+            A 4-tuple of lsits ``(active, active_orig, failed, failed_orig)``, where the :obj:`list`\ s ``active`` and
+                ``active_orig`` contain the active ``(path, url)``'s, converted and original respectively; ``failed``
+                and ``failed_orig`` contain the same ``(path, url)``'s that are not downloadable.
+        """
         active, active_orig = [], []
         failed, failed_orig = [], []
         for path_name, url in path_urls:
@@ -916,7 +1051,7 @@ class BDownloader(object):
                 A valid `path_urls`, for example, could be [('/opt/files/bar.tar.bz2', ``'https://foo.cc/bar.tar.bz2'``),
                 ('./sanguoshuowen.pdf', ``'https://bar.cc/sanguoshuowen.pdf\\thttps://foo.cc/sanguoshuowen.pdf'``),
                 ('/**to**/**be**/created/', ``'https://flash.jiefang.rmy/lc-cl/gaozhuang/chelsia/rockspeaker.tar.gz'``),
-                ('/path/to/**existed**-dir', ``'https://ghosthat.bar/foo/puretonecone81.xz\\thttps://tpot.horn/foo/puretonecone81.xz\\thttps://hawkhill.bar/foo/puretonecone81.xz'``)].
+                ('/path/to/**existing**-dir', ``'https://ghosthat.bar/foo/puretonecone81.xz\\thttps://tpot.horn/foo/puretonecone81.xz\\thttps://hawkhill.bar/foo/puretonecone81.xz'``)].
         """
         for chunk_path_urls in self.list_split(path_urls, chunk_size=2):
             active, active_orig, _, failed_orig = self._build_ctx(chunk_path_urls)
