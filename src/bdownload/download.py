@@ -929,7 +929,7 @@ class BDownloader(object):
             path_urls (list of tuple): Paths and URLs for the file(s) to be downloaded, see :meth:`downloads` for details.
 
         Returns:
-            A 4-tuple of lsits ``(active, active_orig, failed, failed_orig)``, where the :obj:`list`\ s ``active`` and
+            A 4-tuple of lists ``'(active, active_orig, failed, failed_orig)'``, where the :obj:`list`\ s ``active`` and
                 ``active_orig`` contain the active ``(path, url)``'s, converted and original respectively; ``failed``
                 and ``failed_orig`` contain the same ``(path, url)``'s that are not downloadable.
         """
@@ -947,6 +947,18 @@ class BDownloader(object):
         return active, active_orig, failed, failed_orig
 
     def _future_done_cb(self, future):
+        """Update the download states when the worker thread completed.
+
+        This method will be called to update the download states of the interested chunk and the file it belongs to when
+        the worker thread completed, ether because of finished without error, raised on exception or cancelled intentionally.
+
+        Args:
+            future (concurrent.futures.Future): The ``Future`` instance representing the running of the worker thread
+                performing the download of a single chunk or the whole of a file.
+
+        Returns:
+            None.
+        """
         ctx_file = self._dl_ctx['files'][self._dl_ctx['futures'][future]['file']]
         ctx_range = ctx_file['ranges'][self._dl_ctx['futures'][future]['range']]
         try:
@@ -960,6 +972,15 @@ class BDownloader(object):
             ctx_range['download_state'] = self.CANCELLED
 
     def _submit_dl_tasks(self, path_urls):
+        """Submit the download tasks of the files to the thread pool.
+
+        Args:
+            path_urls (list of tuple): The meaning and format of the `path_urls` is similar to the parameter for
+                :meth:`downloads`.
+
+        Returns:
+            None.
+        """
         for path_name, _ in path_urls:
             if self._is_parallel_downloadable(path_name):
                 tsk = self._get_remote_file_multipart
@@ -979,9 +1000,23 @@ class BDownloader(object):
                 future.add_done_callback(self._future_done_cb)
 
     def _is_all_done(self):
+        """Check if all the tasks have completed.
+
+        Returns:
+            bool: ``True`` if all the ``Future``s have been done, meaning that all the files have finished downloading,
+                whether successfully or not; ``False`` otherwise.
+        """
         return all(f.done() for f in self._dl_ctx['futures'])
 
     def _state_mgmnt(self):
+        """Perform the state-related operations of file downloading.
+
+        The only thing this method currently does is to cancel the downloading tasks of a file when it has failed,
+        repeatedly on the downloading queue.
+
+        Returns:
+            None.
+        """
         for ctx_path_name in self._dl_ctx['files'].values():
             if ctx_path_name['download_state'] == self.FAILED and (not ctx_path_name['cancelled_on_exception']):
                 fs = ctx_path_name['futures']
@@ -996,6 +1031,14 @@ class BDownloader(object):
                     self.failed_downloads_in_running.append(ctx_path_name['orig_path_url'])
 
     def _mgmnt_task(self):
+        """The management thread body.
+
+        This thread manages the downloading process of the whole job queue, currently including state management only.
+        When all the tasks have been done, it signals the waiting thread and exits immediately.
+
+        Returns:
+            None.
+        """
         while not self.all_done:
             self._state_mgmnt()
 
@@ -1008,6 +1051,11 @@ class BDownloader(object):
             time.sleep(0.1)
 
     def _calc_completed(self):
+        """Calculate the already downloaded bytes of the files.
+
+        Returns:
+            int: The size in bytes of the downloaded pieces.
+        """
         completed = 0
         for ctx_path_name in self._dl_ctx['files'].values():
             ctx_ranges = ctx_path_name.get('ranges')
@@ -1018,6 +1066,11 @@ class BDownloader(object):
         return completed
 
     def _progress_task(self):
+        """The thread body for showing the progress of the downloading tasks.
+
+        Returns:
+            None.
+        """
         total_size = self._dl_ctx['total_size']
 
         if self._dl_ctx['accurate']:
@@ -1042,7 +1095,7 @@ class BDownloader(object):
             progress_bar.done()
 
     def downloads(self, path_urls):
-        """Submit multiple downloading jobs at a time.
+        """Submit multiple downloading jobs at a time to the downloading queue.
 
         Args:
             path_urls (:obj:`list` of :obj:`tuple`\ s): `path_urls` accepts a list of tuples of the form ``(path, url)``,
@@ -1052,6 +1105,9 @@ class BDownloader(object):
                 ('./sanguoshuowen.pdf', ``'https://bar.cc/sanguoshuowen.pdf\\thttps://foo.cc/sanguoshuowen.pdf'``),
                 ('/**to**/**be**/created/', ``'https://flash.jiefang.rmy/lc-cl/gaozhuang/chelsia/rockspeaker.tar.gz'``),
                 ('/path/to/**existing**-dir', ``'https://ghosthat.bar/foo/puretonecone81.xz\\thttps://tpot.horn/foo/puretonecone81.xz\\thttps://hawkhill.bar/foo/puretonecone81.xz'``)].
+
+        Returns:
+            None.
         """
         for chunk_path_urls in self.list_split(path_urls, chunk_size=2):
             active, active_orig, _, failed_orig = self._build_ctx(chunk_path_urls)
@@ -1071,9 +1127,27 @@ class BDownloader(object):
                 self.failed_downloads_on_addition.extend(failed_orig)
 
     def download(self, path_name, url):
+        """Submit a single downloading job to the downloading queue.
+
+        This method is simply a wrapper of the method :meth:`downloads`.
+
+        Args:
+            path_name (str): The full path name of the file to be downloaded.
+            url (str): The URL referencing the target file.
+
+        Returns:
+            None.
+        """
         return self.downloads([(path_name, url)])
 
     def wait_for_all(self):
+        """Wait for all the downloading jobs to complete.
+
+        Returns:
+            tuple of list: A 2-tuple of lists ``'(succeeded, failed)'``. The first list ``succeeded`` contains the
+                originally passed ``(path, url)``s that finished successfully, while the second list ``failed`` contains
+                the raised and cancelled ones.
+        """
         self.all_submitted = True
         if self.active_downloads_added:
             self.all_done_event.wait()
@@ -1085,6 +1159,11 @@ class BDownloader(object):
         return succeeded, failed
 
     def close(self):
+        """Shut down and perform the cleanup.
+
+        Returns:
+            None.
+        """
         self.executor.shutdown()
 
         self.stop = True
