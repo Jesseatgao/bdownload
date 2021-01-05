@@ -111,29 +111,39 @@ class RequestsSessionWrapper(Session):
 
         (:const:`REQUESTS_RETRIES_ON_METHOD_EXCEPTION` + 1) * (`retries` passed to :func:`requests_retry_session`).
     """
-    def __init__(self):
-        """Initialize the `Session` explicitly.
+    #: Default timeouts: the connect timeout value defaults to 3.05 seconds, and the read timeout 6 seconds.
+    TIMEOUT = (3.05, 6)
+
+    def __init__(self, timeout=None):
+        """Initialize the ``Session`` instance with default timeouts.
+
+        Args:
+            timeout (float or 2-tuple of int): Timeout value(s) as a float or ``(connect, read)`` tuple for both the
+                ``connect`` and the ``read`` timeouts, respectively. If set to ``None``, it will take a default value of
+                :attr:`TIMEOUT`.
         """
         super(RequestsSessionWrapper, self).__init__()
 
+        self.timeout = timeout or self.TIMEOUT
+
     @retry_requests(requests.RequestException,
                     retries=REQUESTS_RETRIES_ON_METHOD_EXCEPTION, backoff_factor=RETRY_BACKOFF_FACTOR)
-    def get(self, url, timeout=(3.05, 6), **kwargs):
+    def get(self, url, **kwargs):
         """Wrapper around ``requests.Session``'s `get` method decorated with the :func:`retry_requests` decorator.
 
         Args:
             url: URL for the file to download from.
-            timeout (2-tuple of int): Timeout values for both the ``connect`` and the ``read`` timeouts, respectively.
-                The ``connect`` timeout value defaults to 3.05 seconds, and the ``read`` timeout to 6 seconds.
             **kwargs: Same arguments as that ``requests.Session.get`` takes.
 
         Returns:
             ``requests.Response``: The response to the HTTP ``GET`` request.
         """
-        return super(RequestsSessionWrapper, self).get(url, timeout=timeout, **kwargs)
+        kwargs.setdefault('timeout', self.timeout)
+
+        return super(RequestsSessionWrapper, self).get(url, **kwargs)
 
 
-def requests_retry_session(retries=3, backoff_factor=0.1, status_forcelist=None,
+def requests_retry_session(retries=3, backoff_factor=0.1, status_forcelist=None, timeout=None,
                            session=None, num_pools=20, pool_maxsize=20):
     """Create a session object of the class :class:`RequestsSessionWrapper` by default.
 
@@ -149,6 +159,7 @@ def requests_retry_session(retries=3, backoff_factor=0.1, status_forcelist=None,
         backoff_factor (float): The backoff factor to apply between retries.
         status_forcelist (set of int): A set of HTTP status codes that a retry should be enforced on. The default status
             forcelist shall be :const:`URLLIB3_RETRY_STATUS_CODES` if not given.
+        timeout (float or 2-tuple of int): Same as for :meth:`RequestsSessionWrapper.__init__()`.
         session (:obj:`requests.Session`): An instance of the class ``requests.Session`` or its customized subclass.
             When not provided, it will use :class:`RequestsSessionWrapper` to create by default.
         num_pools (int): The number of connection pools to cache, which has the same meaning as `num_pools` in
@@ -162,7 +173,7 @@ def requests_retry_session(retries=3, backoff_factor=0.1, status_forcelist=None,
     References:
          https://www.peterbe.com/plog/best-practice-with-retries-with-requests
     """
-    session = session or RequestsSessionWrapper()
+    session = session or RequestsSessionWrapper(timeout=timeout)
     status_forcelist = status_forcelist or URLLIB3_RETRY_STATUS_CODES
 
     # Initialize the session with default HTTP headers
@@ -444,7 +455,7 @@ class BDownloader(object):
         return False
 
     def __init__(self, max_workers=None, min_split_size=1024*1024, chunk_size=1024*100, proxy=None, cookies=None,
-                 user_agent=None, logger=None, progress='mill', num_pools=20, pool_maxsize=20):
+                 user_agent=None, logger=None, progress='mill', num_pools=20, pool_maxsize=20, request_timeout=None):
         """Create and initialize a :class:`BDownloader` object.
 
         Args:
@@ -470,9 +481,14 @@ class BDownloader(object):
                 to cache.
             pool_maxsize (int): `pool_maxsize` will be passed to the underlying ``requests.adapters.HTTPAdapter``.
                 It specifies the maximum number of connections to save that can be reused in the urllib3 connection pool.
+            request_timeout (float or 2-tuple of int): The `request_timeout` parameter specifies the timeouts for the
+                internal ``requests`` session. The timeout value(s) as a float or ``(connect, read)`` tuple is intended
+                for both the ``connect`` and the ``read`` timeouts, respectively. If set to ``None``, it will take a
+                default value of :attr:`RequestsSessionWrapper.TIMEOUT`.
         """
         self.requester = requests_retry_session(retries=URLLIB3_RETRIES_ON_EXCEPTION,
                                                 backoff_factor=RETRY_BACKOFF_FACTOR,
+                                                timeout=request_timeout,
                                                 num_pools=num_pools, pool_maxsize=pool_maxsize)
         if proxy is not None:
             self.requester.proxies = dict(http=proxy, https=proxy)

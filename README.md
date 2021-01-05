@@ -31,30 +31,45 @@ A multi-threaded and multi-source aria2-like batch file downloading library for 
 
 `
 class bdownload.BDownloader(max_workers=None, min_split_size=1024*1024, chunk_size=1024*100, proxy=None, cookies=None,
-                            user_agent=None, logger=None, progress='mill', num_pools=20, pool_maxsize=20)
+                            user_agent=None, logger=None, progress='mill', num_pools=20, pool_maxsize=20, request_timeout=None)
 `
 
     Create and initialize a `BDownloader` object for executing download jobs.
   
-  * The `max_workers` parameter specifies the number of the parallel downloading threads, whose default value is determined by _#num_of_processor * 5_ if set to `None`.
+  * The `max_workers` parameter specifies the number of the parallel downloading threads, whose default value is 
+    determined by _#num_of_processor * 5_ if set to `None`.
   
-  * `min_split_size` denotes the size in bytes of file pieces split to be downloaded in parallel, which defaults to 1024*1024 bytes (i.e. 1MB).
+  * `min_split_size` denotes the size in bytes of file pieces split to be downloaded in parallel, which defaults to 
+    1024*1024 bytes (i.e. 1MB).
   
-  * The `chunk_size` parameter specifies the chunk size in bytes of every http range request, which will take a default value of 1024*100 (i.e. 100KB) if not provided.
+  * The `chunk_size` parameter specifies the chunk size in bytes of every http range request, which will take a default 
+    value of 1024*100 (i.e. 100KB) if not provided.
   
-  * `proxy` supports both HTTP and SOCKS proxies in the form of _http://[user:pass@]host:port_ and _socks5://[user:pass@]host:port_, respectively.
+  * `proxy` supports both HTTP and SOCKS proxies in the form of _http://[user:pass@]host:port_ and 
+    _socks5://[user:pass@]host:port_, respectively.
   
-  * If `cookies` needs to be set, it must take the form of _cookie_key=cookie_value_, with multiple pairs separated by space character if applicable, e.g. '_key1=val1 key2=val2_'.
+  * If `cookies` needs to be set, it must take the form of _cookie_key=cookie_value_, with multiple pairs separated by 
+    space character if applicable, e.g. '_key1=val1 key2=val2_'.
   
-  * When `user_agent` is not given, it will default to '_bdownload/VERSION_', with _VERSION_ being replaced by the package's version number.
+  * When `user_agent` is not given, it will default to '_bdownload/VERSION_', with _VERSION_ being replaced by the 
+    package's version number.
   
-  * The `logger` parameter specifies an event logger. If `logger` is not `None`, it must be an object of class `logging.Logger` or of its customized subclass.  Otherwise, it will use a default module-level logger returned by `logging.getLogger(__name__)`.
+  * The `logger` parameter specifies an event logger. If `logger` is not `None`, it must be an object of class 
+    `logging.Logger` or of its customized subclass.  Otherwise, it will use a default module-level logger returned by 
+    `logging.getLogger(__name__)`.
   
-  * `progress` determines the style of the progress bar displayed while downloading files. Possible values are `'mill'` and `'bar'`, and `'mill'` is the default.
+  * `progress` determines the style of the progress bar displayed while downloading files. Possible values are `'mill'` 
+    and `'bar'`, and `'mill'` is the default.
   
-  * The `num_pools` parameter has the same meaning as `num_pools` in `urllib3.PoolManager` and will eventually be passed to it. Specifically, `num_pools` specifies the number of connection pools to cache.
+  * The `num_pools` parameter has the same meaning as `num_pools` in `urllib3.PoolManager` and will eventually be passed
+    to it. Specifically, `num_pools` specifies the number of connection pools to cache.
   
-  * `pool_maxsize` will be passed to the underlying `requests.adapters.HTTPAdapter`. It specifies the maximum number of connections to save that can be reused in the urllib3 connection pool.
+  * `pool_maxsize` will be passed to the underlying `requests.adapters.HTTPAdapter`. It specifies the maximum number of 
+    connections to save that can be reused in the urllib3 connection pool.
+
+  * The `request_timeout` parameter specifies the timeouts for the internal ``requests`` session. The timeout value(s) 
+    as a float or ``(connect, read)`` tuple is intended for both the ``connect`` and the ``read`` timeouts, respectively.
+    If set to ``None``, it will take a default value of `(3.05, 6)`.
 
 `
 BDownloader.downloads(path_urls)
@@ -62,7 +77,12 @@ BDownloader.downloads(path_urls)
 
     Submit multiple downloading jobs at a time.
   
-  * `path_urls` accepts a list of tuples of the form (_path_, _url_), where _path_ should be a pathname, probably prefixed with absolute or relative paths, and _url_ should be a URL string, which may consist of multiple TAB-separated URLs pointing to the same file. A valid `path_urls`, for example, could be [('_/opt/files/bar.tar.bz2_', '_https://foo.cc/bar.tar.bz2_'), ('_./sanguoshuowen.pdf_', '_https://bar.cc/sanguoshuowen.pdf\thttps://foo.cc/sanguoshuowen.pdf_'), ('_/**to**/**be**/created/_', '_https://flash.jiefang.rmy/lc-cl/gaozhuang/chelsia/rockspeaker.tar.gz_'), ('_/path/to/**existing**-dir_', '_https://ghosthat.bar/foo/puretonecone81.xz\thttps://tpot.horn/foo/puretonecone81.xz\thttps://hawkhill.bar/foo/puretonecone81.xz_')].
+  * `path_urls` accepts a list of tuples of the form (_path_, _url_), where _path_ should be a pathname, probably prefixed
+    with absolute or relative paths, and _url_ should be a URL string, which may consist of multiple TAB-separated URLs 
+    pointing to the same file. A valid `path_urls`, for example, could be [('_/opt/files/bar.tar.bz2_', '_https://foo.cc/bar.tar.bz2_'),
+    ('_./sanguoshuowen.pdf_', '_https://bar.cc/sanguoshuowen.pdf\thttps://foo.cc/sanguoshuowen.pdf_'), 
+    ('_/**to**/**be**/created/_', '_https://flash.jiefang.rmy/lc-cl/gaozhuang/chelsia/rockspeaker.tar.gz_'), ('_/path/to/**existing**-dir_',
+    '_https://ghosthat.bar/foo/puretonecone81.xz\thttps://tpot.horn/foo/puretonecone81.xz\thttps://hawkhill.bar/foo/puretonecone81.xz_')].
 
 `
 BDownloader.download(path, url)
@@ -70,7 +90,8 @@ BDownloader.download(path, url)
 
     Submit a single downloading job.
   
-  * Similar to `BDownloader.downloads()`, in fact it is just a special case of which, with [(`path`, `url`)] composed of the specified parameters as the input.
+  * Similar to `BDownloader.downloads()`, in fact it is just a special case of which, with [(`path`, `url`)] composed of
+    the specified parameters as the input.
 
 `
 BDownloader.wait_for_all()
@@ -202,11 +223,14 @@ bdownload [-h] [-o OUTPUT [OUTPUT ...]] -L URLS [URLS ...] [-D DIR]
 
 `-o OUTPUT [OUTPUT ...], --output OUTPUT [OUTPUT ...]`
 
-    one or more file names (optionally prefixed with relative (to `-D DIR`) or absolute paths), e.g. `-o file1.zip ~/file2.tgz`, paired with URLs specified by `--url` or `-L`
+    one or more file names (optionally prefixed with relative (to `-D DIR`) or absolute paths), e.g. 
+    `-o file1.zip ~/file2.tgz`, paired with URLs specified by `--url` or `-L`
 
 `-L URLS [URLS ...], --url URLS [URLS ...]`
 
-    URL(s) for the files to be downloaded, which might be TAB-separated URLs pointing to the same file, e.g. `-L https://yoursite.net/yourfile.7z`, `-L "https://yoursite01.net/thefile.7z\thttps://yoursite02.com/thefile.7z"`, or `--url "http://foo.cc/file1.zip"  "http://bar.cc/file2.tgz\thttp://bar2.cc/file2.tgz"`
+    URL(s) for the files to be downloaded, which might be TAB-separated URLs pointing to the same file, e.g.
+    `-L https://yoursite.net/yourfile.7z`, `-L "https://yoursite01.net/thefile.7z\thttps://yoursite02.com/thefile.7z"`, 
+    or `--url "http://foo.cc/file1.zip" "http://bar.cc/file2.tgz\thttp://bar2.cc/file2.tgz"`
 
 `-D DIR, --dir DIR`
 
