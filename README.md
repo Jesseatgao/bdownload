@@ -48,8 +48,9 @@ class bdownload.BDownloader(max_workers=None, min_split_size=1024*1024, chunk_si
   * `proxy` supports both HTTP and SOCKS proxies in the form of _http://[user:pass@]host:port_ and 
     _socks5://[user:pass@]host:port_, respectively.
   
-  * If `cookies` needs to be set, it must take the form of _cookie_key=cookie_value_, with multiple pairs separated by 
-    space character if applicable, e.g. '_key1=val1 key2=val2_'.
+  * If `cookies` needs to be set, it must either take the form of _cookie_key=cookie_value_, with multiple pairs separated
+    by space character if applicable, e.g. '_key1=val1 key2=val2_', be packed into a `dict`, or be an instance of `CookieJar`, i.e. 
+    `cookielib.CookieJar` for Python27, `http.cookiejar.CookieJar` for Python3.x or `RequestsCookieJar` from `requests`.
   
   * When `user_agent` is not given, it will default to '_bdownload/VERSION_', with _VERSION_ being replaced by the 
     package's version number.

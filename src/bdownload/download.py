@@ -26,6 +26,7 @@ import requests
 from requests.adapters import HTTPAdapter
 from requests.packages.urllib3.util.retry import Retry
 from requests import Session
+from requests.cookies import cookielib, RequestsCookieJar
 from clint.textui import progress
 
 
@@ -209,7 +210,7 @@ def _build_cookiejar_from_kvp(key_values):
         ``requests.cookies.RequestsCookieJar``: The built CookieJar for ``requests`` sessions.
     """
     if key_values:
-        cookiejar = requests.cookies.RequestsCookieJar()
+        cookiejar = RequestsCookieJar()
         kvps = key_values.split()
         for kvp in kvps:
             key, value = kvp.split("=")
@@ -467,8 +468,10 @@ class BDownloader(object):
                 which will take a default value of 1024*100 (i.e. 100KB) if not provided.
             proxy (str): The `proxy` supports both HTTP and SOCKS proxies in the form of ``'http://[user:pass@]host:port'``
                 and ``'socks5://[user:pass@]host:port'``, respectively.
-            cookies (str): If `cookies` needs to be set, it must take the form of ``'cookie_key=cookie_value'``, with
-                multiple pairs separated by space character if applicable, e.g. ``'key1=val1 key2=val2'``.
+            cookies (str, dict or CookieJar): If `cookies` needs to be set, it must either take the form of ``'cookie_key=cookie_value'``,
+                with multiple pairs separated by space character if applicable, e.g. ``'key1=val1 key2=val2'``, be packed
+                into a ``dict``, or be an instance of ``CookieJar``, i.e. ``cookielib.CookieJar`` for Python27, ``http.cookiejar.CookieJar``
+                for Python3.x or ``RequestsCookieJar`` from ``requests``.
             user_agent (str): When `user_agent` is not given, it will default to ``'bdownload/VERSION'``, with ``VERSION``
                 being replaced by the package's version number.
             logger (logging.Logger): The `logger` parameter specifies an event logger. If `logger` is not `None`,
@@ -493,7 +496,7 @@ class BDownloader(object):
         if proxy is not None:
             self.requester.proxies = dict(http=proxy, https=proxy)
         if cookies is not None:
-            self.requester.cookies = _build_cookiejar_from_kvp(cookies)
+            self.requester.cookies = cookies if isinstance(cookies, (dict, cookielib.CookieJar)) else _build_cookiejar_from_kvp(cookies)
         if user_agent is not None:
             self.requester.headers.update({'User-Agent': user_agent})
 
@@ -606,7 +609,7 @@ class BDownloader(object):
         Raises:
             requests.RequestException: Raised when connect timeouts, read timeouts, failed connections or bad status
                 codes occurred and the retries is exhausted.
-            OSError: Raised when file operations failed.
+            EnvironmentError: Raised when file operations failed.
         """
         ctx_range = self._dl_ctx['files'][path_name]['ranges'][req_range]
         url = ctx_range['url'][0]
@@ -650,7 +653,7 @@ class BDownloader(object):
                         time.sleep(0.1)
                 else:
                     raise
-        except OSError as e:
+        except EnvironmentError as e:
             errno = e.errno if sys.platform != "win32" else e.winerror
             self._logger.error("Error number {}: '{}'".format(errno, e.strerror))
 
@@ -669,7 +672,7 @@ class BDownloader(object):
         Raises:
             requests.RequestException: Raised when connect timeouts, read timeouts, failed connections or bad status
                 codes occurred and the retries is exhausted.
-            OSError: Raised when file operations failed.
+            EnvironmentError: Raised when file operations failed.
         """
         ctx_range = self._dl_ctx['files'][path_name]['ranges'][req_range]
         url = ctx_range['url'][0]
@@ -727,7 +730,7 @@ class BDownloader(object):
                             raise requests.RequestException(msg)
                 else:
                     raise
-        except OSError as e:
+        except EnvironmentError as e:
             errno = e.errno if sys.platform != "win32" else e.winerror
             self._logger.error("Error number {}: '{}'".format(errno, e.strerror))
 
@@ -825,7 +828,7 @@ class BDownloader(object):
                 ``(orig_path, orig_url)`` denotes the originally input pathname and URL.
 
         Raises:
-            OSError: Raised when file (and path) operations failed.
+            EnvironmentError: Raised when file (and path) operations failed.
         """
         path_url, orig_path_url = (path_name, url), (path_name, url)  # original `(path, url)`
 
@@ -901,7 +904,7 @@ class BDownloader(object):
                     mkpath(file_path)
                 with open(file_path_name, mode='w') as _:
                     pass
-            except OSError as e:
+            except EnvironmentError as e:
                 errno = e.errno if sys.platform != "win32" else e.winerror
                 self._logger.error("Error number {}: '{}'".format(errno, e.strerror))
                 raise
