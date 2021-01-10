@@ -208,7 +208,7 @@ if __name__ == '__main__':
 #### Synopsis
 
 ```
-bdownload [-h] [-o OUTPUT [OUTPUT ...]] -L URLS [URLS ...] [-D DIR]
+bdownload [-h] [-o OUTPUT [OUTPUT ...]] [-D DIR] -L URLS [URLS ...]
                [-p PROXY] [-n MAX_WORKERS] [-k MIN_SPLIT_SIZE]
                [-s CHUNK_SIZE] [-e COOKIE] [--user-agent USER_AGENT]
                [-P {mill,bar}] [--num-pools NUM_POOLS]
@@ -227,19 +227,19 @@ bdownload [-h] [-o OUTPUT [OUTPUT ...]] -L URLS [URLS ...] [-D DIR]
     one or more file names (optionally prefixed with relative (to `-D DIR`) or absolute paths), e.g. 
     `-o file1.zip ~/file2.tgz`, paired with URLs specified by `--url` or `-L`
 
+`-D DIR, --dir DIR`
+
+    directory in which to save the downloaded files
+
 `-L URLS [URLS ...], --url URLS [URLS ...]`
 
     URL(s) for the files to be downloaded, which might be TAB-separated URLs pointing to the same file, e.g.
     `-L https://yoursite.net/yourfile.7z`, `-L "https://yoursite01.net/thefile.7z\thttps://yoursite02.com/thefile.7z"`, 
     or `--url "http://foo.cc/file1.zip" "http://bar.cc/file2.tgz\thttp://bar2.cc/file2.tgz"`
 
-`-D DIR, --dir DIR`
-
-    directory in which to save the downloaded files
-
 `-p PROXY, --proxy PROXY`
 
-    proxy in the form of "http://[user:pass@]host:port" or "socks5://[user:pass@]host:port"
+    proxy either in the form of "http://[user:pass@]host:port" or "socks5://[user:pass@]host:port"
 
 `-n MAX_WORKERS, --max-workers MAX_WORKERS`
 
@@ -255,7 +255,9 @@ bdownload [-h] [-o OUTPUT [OUTPUT ...]] -L URLS [URLS ...] [-D DIR]
 
 `-e COOKIE, --cookie COOKIE`
 
-    cookies in the form of "cookie_key=cookie_value cookie_key2=cookie_value2"
+    cookies either in the form of a string (maybe whitespace- and/or semicolon- separated) 
+    like "cookie_key=cookie_value cookie_key2=cookie_value2; cookie_key3=cookie_value3", or a file, 
+    e.g. named "cookies.txt", in the Netscape cookie file format. NB the option `-D DIR` does not apply to the cookie file
 
 `--user-agent USER_AGENT`
 

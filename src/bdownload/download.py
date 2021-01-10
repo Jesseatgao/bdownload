@@ -21,7 +21,7 @@ except ImportError:
     from urllib import unquote
     from urlparse import urlparse
 
-from distutils.dir_util import mkpath
+from distutils.dir_util import mkpath, remove_tree
 import requests
 from requests.adapters import HTTPAdapter
 from requests.packages.urllib3.util.retry import Retry
@@ -823,9 +823,9 @@ class BDownloader(object):
 
         Returns:
             tuple: A 3-tuple ``'(downloadable, (path, url), (orig_path, orig_url))'``, where the ``downloadable``
-                indicates whether or not (``True`` or ``False``) there is at least one active URL to download the file,
-                ``(path, url)`` denotes the converted full pathname and the URL that consists only of active URLs, and
-                ``(orig_path, orig_url)`` denotes the originally input pathname and URL.
+            indicates whether or not (``True`` or ``False``) there is at least one active URL to download the file,
+            ``(path, url)`` denotes the converted full pathname and the URL that consists only of active URLs, and
+            ``(orig_path, orig_url)`` denotes the originally input pathname and URL.
 
         Raises:
             EnvironmentError: Raised when file (and path) operations failed.
@@ -863,8 +863,9 @@ class BDownloader(object):
                             ctx_file['length'] = file_len
                         else:
                             if file_len != ctx_file['length']:
-                                self._logger.error("File size obtained from '{}' happened to mismatch with that from others, downloading will continue but the downloaded file may be incorrect!".format(
-                                    url))
+                                self._logger.error("'{}': File size obtained from '{}' happened to mismatch with that "
+                                                   "from others, downloading will continue but the downloaded file may "
+                                                   "not be the intended one!".format(path_url[0], url))
 
                                 r.close()
                                 continue
@@ -886,28 +887,46 @@ class BDownloader(object):
                     downloadable = True
                     active_urls.append(url)
                 else:
-                    self._logger.warning("Unexpected status code {}: trying to determine the file size using '{}'".format(
-                        r.status_code, url
-                    ))
+                    self._logger.warning("'{}': Unexpected status code {}: trying to determine the file size "
+                                         "using '{}'".format(path_url[0], r.status_code, url))
 
                 r.close()
             except requests.RequestException as e:
-                self._logger.error("Error while trying to determine the file size using '{}': '{}'".format(url, str(e)))
+                self._logger.error("'{}': Error while trying to determine the file size "
+                                   "using '{}': '{}'".format(path_url[0], url, str(e)))
 
         if downloadable:
             if not file_name:
                 file_name = self._get_fname_from_url(active_urls[0])
 
             file_path_name = os.path.abspath(os.path.join(file_path, file_name))
+            path_url = (file_path_name, '\t'.join(active_urls))
+
+            # check for conflicting `file_path_name` in downloading jobs
+            if file_path_name in self._dl_ctx['files']:
+                dup_orig_path_url = self._dl_ctx['files'][file_path_name]['orig_path_url']
+                self._logger.error("{!r}: Full path name conflicting error: {!r}; Already in downloading: "
+                                   "{!r}".format(file_path_name, orig_path_url, dup_orig_path_url))
+
+                return False, path_url, orig_path_url
+
+            path_selfcreated = False
             try:
                 if file_path and not os.path.exists(file_path):
                     mkpath(file_path)
+                    path_selfcreated = True
+
                 with open(file_path_name, mode='w') as _:
                     pass
             except EnvironmentError as e:
                 errno = e.errno if sys.platform != "win32" else e.winerror
-                self._logger.error("Error number {}: '{}'".format(errno, e.strerror))
-                raise
+                self._logger.error("{!r}: Error number {}: {!r}; Try downloading: "
+                                   "{!r}".format(file_path_name, errno, e.strerror, orig_path_url))
+
+                if path_selfcreated:
+                    remove_tree(file_path)
+
+                return False, path_url, orig_path_url
 
             self._dl_ctx['files'][file_path_name] = ctx_file
 
@@ -934,10 +953,7 @@ class BDownloader(object):
                     'start_time': 0,
                     'rt_dl_speed': 0,
                     'download_state': self.INPROCESS,
-                    'url': next(iter_url)
-                })
-
-            path_url = (file_path_name, '\t'.join(active_urls))
+                    'url': next(iter_url)})
 
         return downloadable, path_url, orig_path_url
 
@@ -949,8 +965,8 @@ class BDownloader(object):
 
         Returns:
             A 4-tuple of lists ``'(active, active_orig, failed, failed_orig)'``, where the :obj:`list`\ s ``active`` and
-                ``active_orig`` contain the active ``(path, url)``'s, converted and original respectively; ``failed``
-                and ``failed_orig`` contain the same ``(path, url)``'s that are not downloadable.
+            ``active_orig`` contain the active ``(path, url)``'s, converted and original respectively; ``failed`` and
+            ``failed_orig`` contain the same ``(path, url)``'s that are not downloadable.
         """
         active, active_orig = [], []
         failed, failed_orig = [], []
@@ -1001,12 +1017,13 @@ class BDownloader(object):
             None.
         """
         for path_name, _ in path_urls:
-            if self._is_parallel_downloadable(path_name):
+            ctx_file = self._dl_ctx["files"][path_name]
+
+            if len(ctx_file["ranges"]) > 1:
                 tsk = self._get_remote_file_multipart
             else:
                 tsk = self._get_remote_file_singlepart
 
-            ctx_file = self._dl_ctx["files"][path_name]
             for req_range, ctx_range in ctx_file["ranges"].items():
                 future = self.executor.submit(tsk, path_name, req_range)
                 ctx_file["futures"].append(future)
@@ -1022,8 +1039,8 @@ class BDownloader(object):
         """Check if all the tasks have completed.
 
         Returns:
-            bool: ``True`` if all the ``Future``s have been done, meaning that all the files have finished downloading,
-                whether successfully or not; ``False`` otherwise.
+            bool: ``True`` if all the ``Future``\ s have been done, meaning that all the files have finished downloading,
+            whether successfully or not; ``False`` otherwise.
         """
         return all(f.done() for f in self._dl_ctx['futures'])
 
@@ -1164,8 +1181,8 @@ class BDownloader(object):
 
         Returns:
             tuple of list: A 2-tuple of lists ``'(succeeded, failed)'``. The first list ``succeeded`` contains the
-                originally passed ``(path, url)``s that finished successfully, while the second list ``failed`` contains
-                the raised and cancelled ones.
+            originally passed ``(path, url)``\ s that finished successfully, while the second list ``failed`` contains
+            the raised and cancelled ones.
         """
         self.all_submitted = True
         if self.active_downloads_added:

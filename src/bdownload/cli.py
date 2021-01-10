@@ -9,10 +9,12 @@ from __future__ import print_function
 import sys
 from platform import system
 from argparse import ArgumentParser, ArgumentTypeError
-from os.path import join, abspath
+from os.path import join, abspath, isfile
 import re
 from codecs import encode, decode
 import logging
+
+from requests.cookies import cookielib
 
 from .download import BDownloader
 
@@ -126,7 +128,7 @@ def _normalize_bytes_num(bytes_num):
         int: Normalized integer number.
 
     Raises:
-        ArgumentTypeError: Raised when passed `bytes_num` is not either a normal integer decimal number string or
+        ArgumentTypeError: Raised when passed `bytes_num` is neither a normal integer decimal number string nor
             a suffixed one.
     """
     try:
@@ -147,12 +149,53 @@ def _normalize_bytes_num(bytes_num):
     return size
 
 
+_COOKIE_STR_REGEX = re.compile('\s*(?:[^,; =]+=[^,; ]+\s*(?:$|\s+|;\s*))+\s*')
+
+
+def _load_cookies(cookies):
+    """Load cookie(s) either from a Netscape cookie file or a string.
+
+    Args:
+        cookies (str): Cookies either in the form of a string (maybe whitespace- and/or semicolon- separated)
+            like "cookie_key=cookie_value cookie_key2=cookie_value2; cookie_key3=cookie_value3", or a file,
+            e.g. named "cookies.txt", in the Netscape cookie file format.
+
+            Note:
+                The option `-D DIR` does not apply to the cookie file.
+
+    Returns:
+        :obj:`cookielib.MozillaCookieJar` or str: A ``CookieJar`` or a cookies string with the semicolon separators
+        substituted by whitespaces.
+
+    Raises:
+        ArgumentTypeError: Raised when exception occurred while loading the `cookies` file or the `cookies` string is
+            not in valid format.
+    """
+    # A cookie file takes precedence over a cookie string
+    if isfile(cookies):  # Netscape HTTP Cookie File
+        try:
+            cj = cookielib.MozillaCookieJar(cookies)
+            cj.load(ignore_expires=True, ignore_discard=True)
+
+            return cj
+        except EnvironmentError as e:  # `LoadError` is a subclass of which
+            raise ArgumentTypeError(str(e))
+    else:
+        if not _COOKIE_STR_REGEX.match(cookies):
+            msg = 'Cookie {!r} is not in valid format!'.format(cookies)
+            raise ArgumentTypeError(msg)
+
+        return cookies.replace(';', ' ')  # Convert semicolons to whitespaces in order to fit into ``BDownloader()``
+
+
 def _arg_parser():
     parser = ArgumentParser()
 
     parser.add_argument('-o', '--output', nargs='+', dest='output',
                         help='one or more file names (optionally prefixed with relative (to `-D DIR`) or absolute paths), '
                              'e.g. `-o file1.zip ~/file2.tgz`, paired with URLs specified by `--url` or `-L`')
+
+    parser.add_argument('-D', '--dir', default='.', dest='dir', help='directory in which to save the downloaded files')
 
     parser.add_argument('-L', '--url', nargs='+', required=True, dest='urls', type=_dec_raw_tab_separated_urls,
                         help='URL(s) for the files to be downloaded, '
@@ -161,10 +204,8 @@ def _arg_parser():
                              '`-L "https://yoursite01.net/thefile.7z\\thttps://yoursite02.com/thefile.7z"`, '
                              'or `--url "http://foo.cc/file1.zip" "http://bar.cc/file2.tgz\\thttp://bar2.cc/file2.tgz"`')
 
-    parser.add_argument('-D', '--dir', default='.', dest='dir', help='directory in which to save the downloaded files')
-
     parser.add_argument('-p', '--proxy', dest='proxy', default=None,
-                        help='proxy in the form of "http://[user:pass@]host:port" or "socks5://[user:pass@]host:port" ')
+                        help='proxy either in the form of "http://[user:pass@]host:port" or "socks5://[user:pass@]host:port"')
 
     parser.add_argument('-n', '--max-workers', dest='max_workers', default=DEFAULT_MAX_WORKER, type=int,
                         help='number of worker threads [default: {}]'.format(DEFAULT_MAX_WORKER))
@@ -175,8 +216,11 @@ def _arg_parser():
     parser.add_argument('-s', '--chunk-size', dest='chunk_size', default=DEFAULT_CHUNK_SIZE, type=_normalize_bytes_num,
                         help='every request range size in bytes, "10240, 10K or 1M" for example [default: {}]'.format(DEFAULT_CHUNK_SIZE))
 
-    parser.add_argument('-e', '--cookie', dest='cookie', default=None,
-                        help='cookies in the form of "cookie_key=cookie_value cookie_key2=cookie_value2"')
+    parser.add_argument('-e', '--cookie', dest='cookie', default=None, type=_load_cookies,
+                        help='cookies either in the form of a string (maybe whitespace- and/or semicolon- separated) '
+                             'like "cookie_key=cookie_value cookie_key2=cookie_value2; cookie_key3=cookie_value3", or '
+                             'a file, e.g. named "cookies.txt", in the Netscape cookie file format. '
+                             'NB the option `-D DIR` does not apply to the cookie file')
 
     parser.add_argument('--user-agent', dest='user_agent', default=None, help='custom user agent')
 
