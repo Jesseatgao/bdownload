@@ -16,7 +16,7 @@ import logging
 
 from requests.cookies import cookielib
 
-from .download import BDownloader
+from .download import BDownloader, COOKIE_STR_REGEX
 
 
 DEFAULT_MAX_WORKER = 20         # number of worker threads
@@ -149,9 +149,6 @@ def _normalize_bytes_num(bytes_num):
     return size
 
 
-_COOKIE_STR_REGEX = re.compile('\s*(?:[^,; =]+=[^,; ]+\s*(?:$|\s+|;\s*))+\s*')
-
-
 def _load_cookies(cookies):
     """Load cookie(s) either from a Netscape cookie file or a string.
 
@@ -164,8 +161,7 @@ def _load_cookies(cookies):
                 The option `-D DIR` does not apply to the cookie file.
 
     Returns:
-        :obj:`cookielib.MozillaCookieJar` or str: A ``CookieJar`` or a cookies string with the semicolon separators
-        substituted by whitespaces.
+        :obj:`cookielib.MozillaCookieJar` or str: A ``CookieJar`` or a validated cookies string.
 
     Raises:
         ArgumentTypeError: Raised when exception occurred while loading the `cookies` file or the `cookies` string is
@@ -181,11 +177,11 @@ def _load_cookies(cookies):
         except EnvironmentError as e:  # `LoadError` is a subclass of which
             raise ArgumentTypeError(str(e))
     else:
-        if not _COOKIE_STR_REGEX.match(cookies):
+        if not COOKIE_STR_REGEX.match(cookies):
             msg = 'Cookie {!r} is not in valid format!'.format(cookies)
             raise ArgumentTypeError(msg)
 
-        return cookies.replace(';', ' ')  # Convert semicolons to whitespaces in order to fit into ``BDownloader()``
+        return cookies
 
 
 def _arg_parser():

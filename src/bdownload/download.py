@@ -22,6 +22,7 @@ except ImportError:
     from urlparse import urlparse
 
 from distutils.dir_util import mkpath, remove_tree
+from distutils.errors import DistutilsFileError
 import requests
 from requests.adapters import HTTPAdapter
 from requests.packages.urllib3.util.retry import Retry
@@ -50,6 +51,12 @@ RETRY_BACKOFF_FACTOR = 0.1
 
 #: set: Default status codes to retry on intended for the underlying ``urllib3``.
 URLLIB3_RETRY_STATUS_CODES = frozenset([413, 429, 500, 502, 503, 504])
+
+COOKIE_STR_REGEX = re.compile('\s*(?:[^,; =]+=[^,; ]+\s*(?:$|\s+|;\s*))+\s*')
+"""A compiled regular expression object used to match the cookie string in the form of key/value pairs.
+
+See also :meth:`BDownloader.__init__()` for more details about `cookies`.
+"""
 
 
 def retry_requests(exceptions, retries=3, backoff_factor=0.1, logger=None):
@@ -197,26 +204,6 @@ def requests_retry_session(retries=3, backoff_factor=0.1, status_forcelist=None,
     session.mount('https://', adapter)
 
     return session
-
-
-def _build_cookiejar_from_kvp(key_values):
-    """Build a CookieJar from cookies in the form of key/value pairs.
-
-    Args:
-        key_values (str): The cookies must take the form of ``'cookie_key=cookie_value'``, with multiple pairs separated
-            by space character if applicable, e.g. ``'key1=val1 key2=val2'``.
-
-    Returns:
-        ``requests.cookies.RequestsCookieJar``: The built CookieJar for ``requests`` sessions.
-    """
-    if key_values:
-        cookiejar = RequestsCookieJar()
-        kvps = key_values.split()
-        for kvp in kvps:
-            key, value = kvp.split("=")
-            cookiejar.set(key, value)
-
-        return cookiejar
 
 
 def unquote_unicode(string):
@@ -469,9 +456,9 @@ class BDownloader(object):
             proxy (str): The `proxy` supports both HTTP and SOCKS proxies in the form of ``'http://[user:pass@]host:port'``
                 and ``'socks5://[user:pass@]host:port'``, respectively.
             cookies (str, dict or CookieJar): If `cookies` needs to be set, it must either take the form of ``'cookie_key=cookie_value'``,
-                with multiple pairs separated by space character if applicable, e.g. ``'key1=val1 key2=val2'``, be packed
-                into a ``dict``, or be an instance of ``CookieJar``, i.e. ``cookielib.CookieJar`` for Python27, ``http.cookiejar.CookieJar``
-                for Python3.x or ``RequestsCookieJar`` from ``requests``.
+                with multiple pairs separated by whitespace and/or semicolon if applicable, e.g. ``'key1=val1 key2=val2;key3=val3'``,
+                be packed into a ``dict``, or be an instance of ``CookieJar``, i.e. ``cookielib.CookieJar`` for Python27,
+                ``http.cookiejar.CookieJar`` for Python3.x or ``RequestsCookieJar`` from ``requests``.
             user_agent (str): When `user_agent` is not given, it will default to ``'bdownload/VERSION'``, with ``VERSION``
                 being replaced by the package's version number.
             logger (logging.Logger): The `logger` parameter specifies an event logger. If `logger` is not `None`,
@@ -496,7 +483,7 @@ class BDownloader(object):
         if proxy is not None:
             self.requester.proxies = dict(http=proxy, https=proxy)
         if cookies is not None:
-            self.requester.cookies = cookies if isinstance(cookies, (dict, cookielib.CookieJar)) else _build_cookiejar_from_kvp(cookies)
+            self.requester.cookies = cookies if isinstance(cookies, (dict, cookielib.CookieJar)) else self._build_cookiejar_from_kvp(cookies)
         if user_agent is not None:
             self.requester.headers.update({'User-Agent': user_agent})
 
@@ -814,6 +801,66 @@ class BDownloader(object):
         # limit the length of the filename to 250
         return fname[-250:].strip()
 
+    @staticmethod
+    def _build_cookiejar_from_kvp(key_values):
+        """Build a CookieJar from cookies in the form of key/value pairs.
+
+        Args:
+            key_values (str): The cookies must take the form of ``'cookie_key=cookie_value'``, with multiple pairs separated
+                by whitespace and/or semicolon if applicable, e.g. ``'key1=val1 key2=val2; key3=val3'``.
+
+        Returns:
+            ``requests.cookies.RequestsCookieJar``: The built CookieJar for ``requests`` sessions.
+
+        Raises:
+            TypeError: Raised when the cookies string `key_values` is not in valid format.
+        """
+        if key_values:
+            if not COOKIE_STR_REGEX.match(key_values):
+                msg = 'Cookie {!r} is not in valid format!'.format(key_values)
+                raise TypeError(msg)
+
+            key_values = key_values.replace(';', ' ')  # Convert semicolons to whitespaces for ease of split
+
+            cookiejar = RequestsCookieJar()
+            kvps = key_values.split()
+            for kvp in kvps:
+                key, value = kvp.split("=")
+                cookiejar.set(key, value)
+
+            return cookiejar
+
+    @staticmethod
+    def _topmost_missing_dir(path):
+        """Find the topmost non-existent directory for a given path.
+
+        Args:
+            path (str): A path to the directory to save the downloaded file in.
+
+        Returns:
+            str: The uppermost directory that is missing from the `path`.
+        """
+        if not path or os.path.exists(path):
+            return None
+
+        path = os.path.abspath(path)
+        drive, _ = os.path.splitdrive(path)
+        drive_len = len(drive)
+        last_missing = path
+        while True:
+            idx = path.rfind(os.sep)
+            if idx <= drive_len:
+                break
+
+            parent_dir = path[:idx]
+            if not os.path.exists(parent_dir):
+                last_missing = parent_dir
+                path = parent_dir
+            else:
+                break
+
+        return last_missing
+
     def _build_ctx_internal(self, path_name, url):
         """The helper method that actually does the build of the downloading context of the file.
 
@@ -826,9 +873,6 @@ class BDownloader(object):
             indicates whether or not (``True`` or ``False``) there is at least one active URL to download the file,
             ``(path, url)`` denotes the converted full pathname and the URL that consists only of active URLs, and
             ``(orig_path, orig_url)`` denotes the originally input pathname and URL.
-
-        Raises:
-            EnvironmentError: Raised when file (and path) operations failed.
         """
         path_url, orig_path_url = (path_name, url), (path_name, url)  # original `(path, url)`
 
@@ -910,21 +954,27 @@ class BDownloader(object):
 
                 return False, path_url, orig_path_url
 
-            path_selfcreated = False
+            # Prepare the necessary directory structure and file template
+            top_missing_dir = self._topmost_missing_dir(file_path)
             try:
-                if file_path and not os.path.exists(file_path):
+                if top_missing_dir:
                     mkpath(file_path)
-                    path_selfcreated = True
 
                 with open(file_path_name, mode='w') as _:
                     pass
-            except EnvironmentError as e:
-                errno = e.errno if sys.platform != "win32" else e.winerror
-                self._logger.error("{!r}: Error number {}: {!r}; Try downloading: "
-                                   "{!r}".format(file_path_name, errno, e.strerror, orig_path_url))
+            except (EnvironmentError, DistutilsFileError) as e:
+                if isinstance(e, DistutilsFileError):
+                    msg = "{!r}: Error: {!r}; Try downloading: {!r}".format(file_path_name, str(e), orig_path_url)
+                else:
+                    errno = e.errno if sys.platform != "win32" else e.winerror
+                    msg = "{!r}: Error number {}: {!r}; Try downloading: {!r}".format(file_path_name, errno, e.strerror, orig_path_url)
+                self._logger.error(msg)
 
-                if path_selfcreated:
-                    remove_tree(file_path)
+                if top_missing_dir:
+                    try:
+                        remove_tree(top_missing_dir)
+                    except Exception:
+                        pass
 
                 return False, path_url, orig_path_url
 
