@@ -3,6 +3,7 @@ from __future__ import division
 from __future__ import unicode_literals
 
 import time
+from datetime import datetime, timedelta
 import random
 from functools import wraps
 import logging
@@ -12,6 +13,14 @@ import threading
 from concurrent.futures import ThreadPoolExecutor, CancelledError  # ,wait
 from math import trunc
 import re
+
+# Extracted from `futures`
+try:
+    from multiprocessing import cpu_count
+except ImportError:
+    # some platforms don't have multiprocessing
+    def cpu_count():
+        return None
 
 try:
     from urllib.parse import unquote, urlparse
@@ -57,6 +66,15 @@ COOKIE_STR_REGEX = re.compile('\s*(?:[^,; =]+=[^,; ]+\s*(?:$|\s+|;\s*))+\s*')
 
 See also :meth:`BDownloader.__init__()` for more details about `cookies`.
 """
+
+
+def _cpu_count():
+    try:
+        cpus = cpu_count()
+    except NotImplementedError:
+        cpus = None
+
+    return cpus
 
 
 def retry_requests(exceptions, retries=3, backoff_factor=0.1, logger=None):
@@ -310,7 +328,11 @@ class MillProgress(object):
         self.show(0)
 
     def format_time(self, seconds):
-        return time.strftime('%H:%M:%S', time.gmtime(seconds))
+        td = timedelta(seconds=seconds)
+        dt = datetime(1, 1, 1) + td
+
+        return '{:04d}Y:{:02d}M:{:02d}D:{:02d}h:{:02d}m:{:02d}s'.format(dt.year-1, dt.month-1, dt.day-1,
+                                                                        dt.hour, dt.minute, dt.second)
 
     def mill_char(self, progress):
         # if self.expected_size and progress >= self.expected_size:
@@ -435,6 +457,12 @@ class BDownloader(object):
     _FILE_STATES = [INPROCESS, FAILED, SUCCEEDED]
     _RANGE_STATES = [INPROCESS, FAILED, CANCELLED, SUCCEEDED]
 
+    # Default value for `max_workers`
+    _MAX_WORKERS = (_cpu_count() or 1) * 5  # In line with `futures`
+
+    # Default chunk size for streaming the download
+    _STREAM_CHUNK_SIZE = 7168  # FIXME: requests #5536
+
     def __enter__(self):
         return self
 
@@ -488,6 +516,8 @@ class BDownloader(object):
             self.requester.headers.update({'User-Agent': user_agent})
 
         self.executor = ThreadPoolExecutor(max_workers)
+        self.max_workers = max_workers or self._MAX_WORKERS
+
         self.progress_thread = None
         self.mgmnt_thread = None
         self.all_done_event = threading.Event()  # Event signaling the completion of all the download jobs
@@ -619,7 +649,7 @@ class BDownloader(object):
                         r = self.requester.get(url, headers=headers, allow_redirects=True, stream=True)
                         if r.status_code == requests.codes.partial:
                             try:
-                                for chunk in r.iter_content(chunk_size=None):
+                                for chunk in r.iter_content(chunk_size=self._STREAM_CHUNK_SIZE):
                                     fd.write(chunk)
                                     ctx_range['offset'] += len(chunk)
                             except requests.RequestException as e:
@@ -685,7 +715,7 @@ class BDownloader(object):
                     r = self.requester.get(url, headers=headers, allow_redirects=True, stream=True)
                     if r.status_code == status_code:  # in (requests.codes.ok, requests.codes.partial)
                         try:
-                            for chunk in r.iter_content(chunk_size=None):
+                            for chunk in r.iter_content(chunk_size=self._STREAM_CHUNK_SIZE):
                                 fd.write(chunk)
                                 ctx_range['offset'] += len(chunk)
 
@@ -985,7 +1015,7 @@ class BDownloader(object):
                 self._dl_ctx['accurate'] = False
 
             # calculate request ranges
-            if self._is_parallel_downloadable(file_path_name):
+            if self._is_parallel_downloadable(file_path_name) and self.max_workers > 1:
                 ranges = self.calc_req_ranges(ctx_file['length'], self.min_split_size, 0)
             else:
                 ranges = [(0, None)]
