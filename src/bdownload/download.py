@@ -69,6 +69,11 @@ See also :meth:`BDownloader.__init__()` for more details about `cookies`.
 
 
 def _cpu_count():
+    """A simple wrapper around the ``cpu_count()`` for escaping the `NotImplementedError`.
+
+    Returns:
+        The number of CPUs in the system. Return `None` if not obtained.
+    """
     try:
         cpus = cpu_count()
     except NotImplementedError:
@@ -144,7 +149,7 @@ class RequestsSessionWrapper(Session):
         """Initialize the ``Session`` instance with default timeouts.
 
         Args:
-            timeout (float or 2-tuple of int): Timeout value(s) as a float or ``(connect, read)`` tuple for both the
+            timeout (float or 2-tuple of float): Timeout value(s) as a float or ``(connect, read)`` tuple for both the
                 ``connect`` and the ``read`` timeouts, respectively. If set to ``None``, it will take a default value of
                 :attr:`TIMEOUT`.
         """
@@ -169,7 +174,7 @@ class RequestsSessionWrapper(Session):
         return super(RequestsSessionWrapper, self).get(url, **kwargs)
 
 
-def requests_retry_session(retries=3, backoff_factor=0.1, status_forcelist=None, timeout=None,
+def requests_retry_session(retries=None, backoff_factor=0.1, status_forcelist=None, timeout=None,
                            session=None, num_pools=20, pool_maxsize=20):
     """Create a session object of the class :class:`RequestsSessionWrapper` by default.
 
@@ -181,11 +186,12 @@ def requests_retry_session(retries=3, backoff_factor=0.1, status_forcelist=None,
 
     Args:
         retries (int): Maximum number of retry attempts allowed on errors and interested status codes, which will apply
-            to the retry logic of the underlying ``urllib3``.
+            to the retry logic of the underlying ``urllib3``. If set to `None` or not given, it will default to
+            :const:`URLLIB3_RETRIES_ON_EXCEPTION`.
         backoff_factor (float): The backoff factor to apply between retries.
         status_forcelist (set of int): A set of HTTP status codes that a retry should be enforced on. The default status
             forcelist shall be :const:`URLLIB3_RETRY_STATUS_CODES` if not given.
-        timeout (float or 2-tuple of int): Same as for :meth:`RequestsSessionWrapper.__init__()`.
+        timeout (float or 2-tuple of float): Same as for :meth:`RequestsSessionWrapper.__init__()`.
         session (:obj:`requests.Session`): An instance of the class ``requests.Session`` or its customized subclass.
             When not provided, it will use :class:`RequestsSessionWrapper` to create by default.
         num_pools (int): The number of connection pools to cache, which has the same meaning as `num_pools` in
@@ -200,6 +206,8 @@ def requests_retry_session(retries=3, backoff_factor=0.1, status_forcelist=None,
          https://www.peterbe.com/plog/best-practice-with-retries-with-requests
     """
     session = session or RequestsSessionWrapper(timeout=timeout)
+
+    retries = retries or URLLIB3_RETRIES_ON_EXCEPTION
     status_forcelist = status_forcelist or URLLIB3_RETRY_STATUS_CODES
 
     # Initialize the session with default HTTP headers
@@ -228,7 +236,7 @@ def unquote_unicode(string):
     """Unquote a percent-encoded string.
 
     Args:
-        string (str): A %xx and %uxxxx -encoded string.
+        string (str): A %xx- and %uxxxx- encoded string.
 
     Returns:
         str: The unquoted unicode string.
@@ -327,11 +335,12 @@ class MillProgress(object):
 
         self.show(0)
 
-    def format_time(self, seconds):
+    @staticmethod
+    def format_time(seconds):
         td = timedelta(seconds=seconds)
         dt = datetime(1, 1, 1) + td
 
-        return '{:04d}Y:{:02d}M:{:02d}D:{:02d}h:{:02d}m:{:02d}s'.format(dt.year-1, dt.month-1, dt.day-1,
+        return '{:04d}Y:{:02d}M:{:02d}D-{:02d}h:{:02d}m:{:02d}s'.format(dt.year-1, dt.month-1, dt.day-1,
                                                                         dt.hour, dt.minute, dt.second)
 
     def mill_char(self, progress):
@@ -471,7 +480,8 @@ class BDownloader(object):
         return False
 
     def __init__(self, max_workers=None, min_split_size=1024*1024, chunk_size=1024*100, proxy=None, cookies=None,
-                 user_agent=None, logger=None, progress='mill', num_pools=20, pool_maxsize=20, request_timeout=None):
+                 user_agent=None, logger=None, progress='mill', num_pools=20, pool_maxsize=20, request_timeout=None,
+                 request_retries=None, status_forcelist=None):
         """Create and initialize a :class:`BDownloader` object.
 
         Args:
@@ -499,13 +509,16 @@ class BDownloader(object):
                 to cache.
             pool_maxsize (int): `pool_maxsize` will be passed to the underlying ``requests.adapters.HTTPAdapter``.
                 It specifies the maximum number of connections to save that can be reused in the urllib3 connection pool.
-            request_timeout (float or 2-tuple of int): The `request_timeout` parameter specifies the timeouts for the
+            request_timeout (float or 2-tuple of float): The `request_timeout` parameter specifies the timeouts for the
                 internal ``requests`` session. The timeout value(s) as a float or ``(connect, read)`` tuple is intended
                 for both the ``connect`` and the ``read`` timeouts, respectively. If set to ``None``, it will take a
                 default value of :attr:`RequestsSessionWrapper.TIMEOUT`.
+            request_retries (int  or 2-tuple of int):
+            status_forcelist (set of int):
         """
-        self.requester = requests_retry_session(retries=URLLIB3_RETRIES_ON_EXCEPTION,
+        self.requester = requests_retry_session(retries=request_retries,
                                                 backoff_factor=RETRY_BACKOFF_FACTOR,
+                                                status_forcelist=status_forcelist,
                                                 timeout=request_timeout,
                                                 num_pools=num_pools, pool_maxsize=pool_maxsize)
         if proxy is not None:
