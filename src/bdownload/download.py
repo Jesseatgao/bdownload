@@ -201,7 +201,7 @@ class RequestsSessionWrapper(Session):
             timeout = timeout[:len(self.TIMEOUT)]
             tmo_li = list(timeout)
             for idx, tm in enumerate(timeout):
-                if not tm > 0:  # not equal to ``tm <= 0``, e.g. for ``None``
+                if not tm or tm < 0:
                     tmo_li[idx] = self.TIMEOUT[idx]
             timeout = tuple(tmo_li)
         else:  # float
@@ -594,12 +594,12 @@ class BDownloader(object):
         Raises:
             ValueError: Raised when the `cookies` is of the :obj:`str` type and not in valid format.
         """
-        if not resumption_retries > 0:
+        if not resumption_retries or resumption_retries < 0:
             # Fall back on the defaults if None, 0 or a negative number is given
             resumption_retries = REQUESTS_RETRIES_ON_STREAM_EXCEPTION
         self.retries_resumption = resumption_retries
 
-        if not request_retries > 0:
+        if not request_retries or request_retries < 0:
             # Fall back on the defaults if None, 0 or a negative number is given
             request_retries = URLLIB3_BUILTIN_RETRIES_ON_EXCEPTION
 
