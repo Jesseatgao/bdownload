@@ -46,7 +46,7 @@ with open(os.path.join(here, 'VERSION'), mode='r') as fd:
 
 # Default retry configuration
 
-#: int: Default number of retries factor for :data:`requests_extended_retries_factor`.
+#: int: Default number of retries factor for :data:`_requests_extended_retries_factor`.
 REQUESTS_EXTENDED_RETRIES_FACTOR = 3
 
 #: int: Default number of retries on exception set through ``urllib3``'s `Retry` mechanism.
@@ -67,7 +67,7 @@ COOKIE_STR_REGEX = re.compile('\s*(?:[^,; =]+=[^,; ]+\s*(?:$|\s+|;\s*))+\s*')
 See also :meth:`BDownloader.__init__()` for more details about `cookies`.
 """
 
-requests_extended_retries_factor = REQUESTS_EXTENDED_RETRIES_FACTOR
+_requests_extended_retries_factor = REQUESTS_EXTENDED_RETRIES_FACTOR
 """int: Number of retries that complements and extends the builtin `Retry` mechanism of ``urllib3``.
 
 This global variable is meant for the decorator :func:`retry_requests()`, and its value can be modified through the 
@@ -75,7 +75,7 @@ module level function :func:`set_requests_retries_factor`. It is initialized to 
 by default, and usually you don't want to change it.
 
 Together with ``urllib3``'s builtin retry logic, they determine the total number of the retries on exceptions and bad
-status codes at requests for downloading. For more details on the retry mechanism, see :func:`requests_retry_session`.
+status codes at requests for downloading. For more details on the retry mechanisms, see :func:`requests_retry_session`.
 
 Notes:
     Don't mix these two retry mechanisms up with the retries at failed connections while streaming the request content.
@@ -101,15 +101,15 @@ def set_requests_retries_factor(retries):
 
     Args:
         retries (int): Number of retries when a decorated method of ``requests`` raised an exception or returned any bad
-        status code. It should take a value of at least ``1``, or else nothing changes.
+            status code. It should take a value of at least ``1``, or else nothing changes.
 
     Returns:
         None.
     """
-    global requests_extended_retries_factor
+    global _requests_extended_retries_factor
 
     if retries > 0:
-        requests_extended_retries_factor = retries
+        _requests_extended_retries_factor = retries
 
 
 def retry_requests(exceptions, backoff_factor=0.1, logger=None):
@@ -130,7 +130,7 @@ def retry_requests(exceptions, backoff_factor=0.1, logger=None):
         `exceptions`: Re-raise the last caught exception when retries is exhausted.
 
     Notes:
-        This function has an external dependency on the global variable :data:`requests_extended_retries_factor`, whose
+        This function has an external dependency on the global variable :data:`_requests_extended_retries_factor`, whose
         value can be changed through the function :func:`set_requests_retries_factor`. Also, it should be greater than
         ``0``, thus allowing the decorated method to retry at least once to cover the edge cases of exceptions and bad
         status codes.
@@ -146,7 +146,10 @@ def retry_requests(exceptions, backoff_factor=0.1, logger=None):
 
         @wraps(f)
         def f_retry(*args, **kwargs):
-            global requests_extended_retries_factor
+            # The retry could be bypassed if the factor is not set through :func:`set_requests_retries_factor`,
+            # e.g. by setting it to ``0`` directly. This behavior is intentionally not disabled.
+            global _requests_extended_retries_factor
+
             ntries = 0
             while True:
                 try:
@@ -155,12 +158,12 @@ def retry_requests(exceptions, backoff_factor=0.1, logger=None):
                     return r
                 except exceptions as e:
                     ntries += 1
-                    if ntries > requests_extended_retries_factor:
+                    if ntries > _requests_extended_retries_factor:
                         raise e
                     steps = random.randrange(1, 2**ntries)
                     backoff = steps * backoff_factor
 
-                    logger.warning('{!r}, Retrying {}/{} in {:.2f} seconds...'.format(e, ntries, requests_extended_retries_factor, backoff))
+                    logger.warning('{!r}, Retrying {}/{} in {:.2f} seconds...'.format(e, ntries, _requests_extended_retries_factor, backoff))
 
                     time.sleep(backoff)
 
@@ -170,13 +173,14 @@ def retry_requests(exceptions, backoff_factor=0.1, logger=None):
 
 
 class RequestsSessionWrapper(Session):
-    """Subclass of the ``requests``' ``Session`` class with extended `retry-on-exception` behavior for the `get` method.
+    """Subclass of the ``requests.Session`` class with extended `retry-on-exception` behavior for the ``get`` method.
 
     Note:
-        The retry mechanism here is independent from that of from ``urllib3`` (see :func:`requests_retry_session`).
-        Nevertheless, they together determine the number of the total retries using the following formula:
-
-        (:data:`requests_extended_retries_factor` + 1) * (`retries` configured through :func:`requests_retry_session`).
+        The retry mechanism here is independent from that built into ``urllib3`` (see :data:`_requests_extended_retries_factor`
+        and :func:`retry_requests`). That is, the decorated retry attempts will be triggered whenever the ``get`` method
+        raised on some ``requests.RequestException`` or for any bad status code, regardless of whether or not the builtin
+        Retry of ``urllib3`` is enabled. Nevertheless, they together determine the number of the total retries.
+        See :func:`requests_retry_session` for more information about their cooperation.
     """
     #: Default timeouts: the connect timeout value defaults to 3.05 seconds, and the read timeout 6 seconds.
     TIMEOUT = (3.05, 6)
@@ -222,19 +226,25 @@ class RequestsSessionWrapper(Session):
         return super(RequestsSessionWrapper, self).get(url, **kwargs)
 
 
-def requests_retry_session(retries=None, backoff_factor=0.1, status_forcelist=None, timeout=None,
+def requests_retry_session(builtin_retries=None, backoff_factor=0.1, status_forcelist=None, timeout=None,
                            session=None, num_pools=20, pool_maxsize=20):
     """Create a session object of the class :class:`RequestsSessionWrapper` by default.
 
     Aside from the retry mechanism implemented by the wrapper decorator, the created session also leverages the built-in
-    retries bound to ``urllib3``. For how they cooperate to determine the total retries, see :class:`RequestsSessionWrapper`.
+    retries bound to ``urllib3``. When both of them are enabled, they cooperate to determine the total retry attempts.
+    The worst-case retries is determined using the following formula:
+
+        `builtin_retries` * (:data:`_requests_extended_retries_factor` + 1)
+
+    which applies to all the exceptions and those status codes that fall into the `status_forcelist`. For other status
+    codes, the maximum retries shall be :data:`_requests_extended_retries_factor`.
 
     The HTTP header ``User-Agent`` of the session is set to a default value of `bdownload/VERSION`, with `VERSION` being
     replaced by the package's version number.
 
     Args:
-        retries (int): Maximum number of retry attempts allowed on errors and interested status codes, which will apply
-            to the retry logic of the underlying ``urllib3``. If set to `None` or ``0``, it will default to
+        builtin_retries (int): Maximum number of retry attempts allowed on errors and interested status codes, which will
+            apply to the retry logic of the underlying ``urllib3``. If set to `None` or ``0``, it will default to
             :const:`URLLIB3_RETRIES_ON_EXCEPTION`.
         backoff_factor (float): The backoff factor to apply between retries.
         status_forcelist (set of int): A set of HTTP status codes that a retry should be enforced on. The default status
@@ -255,7 +265,7 @@ def requests_retry_session(retries=None, backoff_factor=0.1, status_forcelist=No
     """
     session = session or RequestsSessionWrapper(timeout=timeout)
 
-    retries = retries or URLLIB3_BUILTIN_RETRIES_ON_EXCEPTION
+    builtin_retries = builtin_retries or URLLIB3_BUILTIN_RETRIES_ON_EXCEPTION
     status_forcelist = status_forcelist or URLLIB3_RETRY_STATUS_CODES
 
     # Initialize the session with default HTTP headers
@@ -267,9 +277,9 @@ def requests_retry_session(retries=None, backoff_factor=0.1, status_forcelist=No
 
     # Initialize the built-in retry mechanism and the connection pools
     max_retries = Retry(
-        total=retries,
-        read=retries,
-        connect=retries,
+        total=builtin_retries,
+        read=builtin_retries,
+        connect=builtin_retries,
         backoff_factor=backoff_factor,
         status_forcelist=status_forcelist,
     )
@@ -520,9 +530,6 @@ class BDownloader(object):
     # Default chunk size for streaming the download
     _STREAM_CHUNK_SIZE = 7168  # FIXME: requests #5536
 
-    # Fallback on defaults for the retries
-    _REQUEST_RETRIES = (URLLIB3_BUILTIN_RETRIES_ON_EXCEPTION, REQUESTS_RETRIES_ON_STREAM_EXCEPTION)
-
     def __enter__(self):
         return self
 
@@ -532,7 +539,7 @@ class BDownloader(object):
 
     def __init__(self, max_workers=None, min_split_size=1024*1024, chunk_size=1024*100, proxy=None, cookies=None,
                  user_agent=None, logger=None, progress='mill', num_pools=20, pool_maxsize=20, request_timeout=None,
-                 request_retries=None, status_forcelist=None):
+                 request_retries=None, status_forcelist=None, resumption_retries=None):
         """Create and initialize a :class:`BDownloader` object.
 
         Args:
@@ -564,26 +571,39 @@ class BDownloader(object):
                 internal ``requests`` session. The timeout value(s) as a float or ``(connect, read)`` tuple is intended
                 for both the ``connect`` and the ``read`` timeouts, respectively. If set to ``None``, it will take a
                 default value of :attr:`RequestsSessionWrapper.TIMEOUT`.
-            request_retries (int or 2-tuple of int):
-            status_forcelist (set of int):
+            request_retries (int): `request_retries` specifies the maximum number of retry attempts allowed on exceptions
+                and interested status codes(i.e. `status_forcelist`) for the builtin Retry logic of ``urllib3``. It will
+                default to :const:`URLLIB3_BUILTIN_RETRIES_ON_EXCEPTION` if not given.
+
+                Notes:
+                    There are two retry mechanisms that jointly determine the total retries of a request. One is the
+                    above-mentioned Retry logic that is built into ``urllib3``, and the other is the extended high-level
+                    retry factor that is meant to complement the builtin retry mechanism. The total retries is bounded by
+                    the following formula:
+
+                    `request_retries` * (:data:`_requests_extended_retries_factor` + 1)
+
+                    See :func:`retry_requests`, :class:`RequestsSessionWrapper` and :func:`requests_retry_session` for
+                    more details on the retry mechanisms.
+            status_forcelist (set of int): `status_forcelist` specifies a set of HTTP status codes that a retry should
+                be enforced on. The default set of status codes shall be :const:`URLLIB3_RETRY_STATUS_CODES` if not given.
+            resumption_retries (int): The `resumption_retries` parameter specifies the maximum allowable number of retries
+                on error at resuming the interrupted download while streaming the request content. The default value of it
+                is :const:`REQUESTS_RETRIES_ON_STREAM_EXCEPTION` when not provided.
 
         Raises:
-            ValueError:
+            ValueError: Raised when the `cookies` is of the :obj:`str` type and not in valid format.
         """
-        request_retries = request_retries or self._REQUEST_RETRIES
-        if isinstance(request_retries, tuple):
-            request_retries = request_retries + self._REQUEST_RETRIES[len(request_retries):]
+        if not resumption_retries > 0:
+            # Fall back on the defaults if None, 0 or a negative number is given
+            resumption_retries = REQUESTS_RETRIES_ON_STREAM_EXCEPTION
+        self.retries_resumption = resumption_retries
 
-            self.retries_builtin = request_retries[0] if request_retries[0] > 0 else self._REQUEST_RETRIES[0]
-            self.retries_stream = request_retries[1] if request_retries[1] > 0 else self._REQUEST_RETRIES[1]
-        else:  # int
-            if request_retries > 0:
-                self.retries_builtin = self.retries_stream = request_retries
-            else:
-                # Fall back on the defaults if a negative number is given
-                self.retries_builtin, self.retries_stream = self._REQUEST_RETRIES
+        if not request_retries > 0:
+            # Fall back on the defaults if None, 0 or a negative number is given
+            request_retries = URLLIB3_BUILTIN_RETRIES_ON_EXCEPTION
 
-        self.requester = requests_retry_session(retries=self.retries_builtin,
+        self.requester = requests_retry_session(builtin_retries=request_retries,
                                                 backoff_factor=RETRY_BACKOFF_FACTOR,
                                                 status_forcelist=status_forcelist,
                                                 timeout=request_timeout,
@@ -711,7 +731,7 @@ class BDownloader(object):
         ctx_range = self._dl_ctx['files'][path_name]['ranges'][req_range]
         url = ctx_range['url'][0]
 
-        max_retries = self.retries_stream
+        max_retries = self.retries_resumption
 
         try:
             with open(path_name, mode='r+b') as fd:
@@ -774,7 +794,7 @@ class BDownloader(object):
         ctx_range = self._dl_ctx['files'][path_name]['ranges'][req_range]
         url = ctx_range['url'][0]
 
-        max_retries = self.retries_stream
+        max_retries = self.retries_resumption
         range_req_satisfiable = True  # The serve may choose to ignore the `Range` header
         try:
             with open(path_name, mode='r+b') as fd:

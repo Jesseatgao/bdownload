@@ -5,5 +5,3 @@ from .download import BDownloader, set_requests_retries_factor
 
 
 logging.getLogger(__name__).addHandler(logging.NullHandler())
-
-__all__ = ["BDownloader", "set_requests_retries_factor"]

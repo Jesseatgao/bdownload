@@ -31,7 +31,8 @@ A multi-threaded and multi-source aria2-like batch file downloading library for 
 
 `
 class bdownload.BDownloader(max_workers=None, min_split_size=1024*1024, chunk_size=1024*100, proxy=None, cookies=None,
-                            user_agent=None, logger=None, progress='mill', num_pools=20, pool_maxsize=20, request_timeout=None)
+                            user_agent=None, logger=None, progress='mill', num_pools=20, pool_maxsize=20, request_timeout=None,
+                            request_retries=None, status_forcelist=None, resumption_retries=None)
 `
 
     Create and initialize a `BDownloader` object for executing download jobs.
@@ -52,6 +53,8 @@ class bdownload.BDownloader(max_workers=None, min_split_size=1024*1024, chunk_si
     by whitespace and/or semicolon if applicable, e.g. '_key1=val1 key2=val2;key3=val3_', be packed into a `dict`, or 
     be an instance of `CookieJar`, i.e. `cookielib.CookieJar` for Python27, `http.cookiejar.CookieJar` for Python3.x or 
     `RequestsCookieJar` from `requests`.
+    
+    Note that the `ValueError` exception will be raised when the `cookies` is of the `str` type and not in the valid format.
   
   * When `user_agent` is not given, it will default to '_bdownload/VERSION_', with _VERSION_ being replaced by the 
     package's version number.
@@ -69,9 +72,27 @@ class bdownload.BDownloader(max_workers=None, min_split_size=1024*1024, chunk_si
   * `pool_maxsize` will be passed to the underlying `requests.adapters.HTTPAdapter`. It specifies the maximum number of 
     connections to save that can be reused in the urllib3 connection pool.
 
-  * The `request_timeout` parameter specifies the timeouts for the internal ``requests`` session. The timeout value(s) 
-    as a float or ``(connect, read)`` tuple is intended for both the ``connect`` and the ``read`` timeouts, respectively.
-    If set to ``None``, it will take a default value of `(3.05, 6)`.
+  * The `request_timeout` parameter specifies the timeouts for the internal `requests` session. The timeout value(s) 
+    as a float or `(connect, read)` tuple is intended for both the `connect` and the `read` timeouts, respectively.
+    If set to `None`, it will take a default value of `(3.05, 6)`.
+    
+  * `request_retries` specifies the maximum number of retry attempts allowed on exceptions and interested status codes
+    (i.e. `status_forcelist`) for the builtin Retry logic of `urllib3`. It will default to `download.URLLIB3_BUILTIN_RETRIES_ON_EXCEPTION`
+    if not given.
+    
+    NB: There are two retry mechanisms that jointly determine the total retries of a request. One is the above-mentioned
+    Retry logic that is built into `urllib3`, and the other is the extended high-level retry factor that is meant to 
+    complement the builtin retry mechanism. The total retries is bounded by the following formula:
+    `request_retries` * (_requests_extended_retries_factor_ + 1), where _requests_extended_retries_factor_ can be modified
+    through the module level function `bdownload.set_requests_retries_factor()`, and is initialized to 
+    `download.REQUESTS_EXTENDED_RETRIES_FACTOR` by default; Usually you don't want to change it.
+    
+  * `status_forcelist` specifies a set of HTTP status codes that a retry should be enforced on. The default set of status
+    codes shall be `download.URLLIB3_RETRY_STATUS_CODES` if not given.
+    
+  * The `resumption_retries` parameter specifies the maximum allowable number of retries on error at resuming the interrupted
+    download while streaming the request content. The default value of it is `download.REQUESTS_RETRIES_ON_STREAM_EXCEPTION` 
+    when not provided.
 
 `
 BDownloader.downloads(path_urls)
@@ -108,6 +129,15 @@ BDownloader.close()
 `
 
     Shut down and perform the cleanup.
+
+`
+bdownload.set_requests_retries_factor(retries)
+`
+
+    Set the retries factor that complements and extends the builtin retry mechanism of `urllib3`.
+
+  * The `retries` parameter specifies the maximum number of retries when a decorated method of `requests` raised an 
+    exception or returned any bad status code. It should take a value of at least `1`, or else nothing changes.
 
 #### Examples
 
