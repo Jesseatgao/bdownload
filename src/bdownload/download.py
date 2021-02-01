@@ -934,7 +934,7 @@ class BDownloader(object):
         else:
             url_ctxs = ctx_file_urls
 
-        url_ctxs_sorted = sorted(url_ctxs.items(), key=lambda (k, v): v['refcnt'])
+        url_ctxs_sorted = sorted(url_ctxs.items(), key=lambda kv: kv[1]['refcnt'])
 
         return [url for url, _ in url_ctxs_sorted]
 
