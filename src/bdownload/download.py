@@ -481,7 +481,9 @@ class BDownloader(object):
                     "futures": [future1, future2],
                     "tsk_num": 2,  # number of the `ranges` and `futures`
                     "orig_path_url": ('file1', 'url1\turl2'),  # (path, url) as a subparameter passed to :meth:`downloads`
-                    "urls":{"url1":{"accept_ranges": "bytes", "refcnt": 2}, "url2":{"accept_ranges": "none", "refcnt": 0}},
+                    "urls":{"url1":{"accept_ranges": "bytes", "refcnt": 1}, "url2":{"accept_ranges": "none", "refcnt": 0},
+                            "url3":{"accept_ranges": "bytes", "refcnt": 1}},
+                    "alt_urls_sorted": ["url1", "url3"],  # sorted by `refcnt`, statically allocated for now
                     "ranges":{
                         "bytes=0-999": {
                             "start": 0,  # start byte position
@@ -499,8 +501,9 @@ class BDownloader(object):
                             "offset": 0,  # current pointer position relative to 'start'(i.e. 1000)
                             "start_time": 0,
                             "rt_dl_speed": 0,  # x seconds interval
+                            "download_state": "inprocess",
                             "future": future2,
-                            "url": [url1]
+                            "url": [url3]
                         }
                     }
                 },
@@ -728,9 +731,12 @@ class BDownloader(object):
                 codes occurred and the retries is exhausted.
             EnvironmentError: Raised when file operations failed.
         """
-        ctx_range = self._dl_ctx['files'][path_name]['ranges'][req_range]
+        ctx_file = self._dl_ctx['files'][path_name]
+        ctx_range = ctx_file['ranges'][req_range]
         url = ctx_range['url'][0]
 
+        alt_urls = None  # get-on-error alternative URLs
+        alt_try = 0  # number of tries at alternative URLs
         max_retries = self.retries_resumption
 
         try:
@@ -761,7 +767,18 @@ class BDownloader(object):
                         else:
                             msg = "Unexpected status code {}, which should have been {}.".format(r.status_code, requests.codes.partial)
                             self._logger.error(msg)
-                            raise requests.RequestException(msg)
+
+                            if alt_urls is None:
+                                # Get alternative URLs from statically allocated, sorted sources for now
+                                alt_urls = [alt_url for alt_url in ctx_file['alt_urls_sorted'] if alt_url != url]
+
+                            if not alt_urls or alt_try >= len(alt_urls):
+                                raise requests.RequestException(msg)
+                            else:
+                                url = alt_urls[alt_try]
+                                alt_try += 1
+
+                                break
                     else:
                         break
 
@@ -769,7 +786,9 @@ class BDownloader(object):
                         self._logger.error("Retrying {}/{}...".format(tr+1, max_retries))
                         time.sleep(0.1)
                 else:
-                    raise
+                    msg = "Task error while downloading {}(range: {}-{})".format(os.path.basename(path_name),
+                                                                                 ctx_range['start'], ctx_range['end'])
+                    raise requests.RequestException(msg)
         except EnvironmentError as e:
             errno = e.errno if sys.platform != "win32" else e.winerror
             self._logger.error("Error number {}: '{}'".format(errno, e.strerror))
@@ -791,11 +810,15 @@ class BDownloader(object):
                 codes occurred and the retries is exhausted.
             EnvironmentError: Raised when file operations failed.
         """
-        ctx_range = self._dl_ctx['files'][path_name]['ranges'][req_range]
+        ctx_file = self._dl_ctx['files'][path_name]
+        ctx_range = ctx_file['ranges'][req_range]
         url = ctx_range['url'][0]
 
+        alt_urls = None  # get-on-error alternative URLs
+        alt_try = 0  # number of tries at alternative URLs
         max_retries = self.retries_resumption
         range_req_satisfiable = True  # The serve may choose to ignore the `Range` header
+
         try:
             with open(path_name, mode='r+b') as fd:
                 for tr in range(max_retries+1):
@@ -813,7 +836,7 @@ class BDownloader(object):
                     fd.seek(range_start)
 
                     r = self.requester.get(url, headers=headers, allow_redirects=True, stream=True)
-                    if r.status_code == status_code:  # in (requests.codes.ok, requests.codes.partial)
+                    if r.status_code == status_code:
                         try:
                             for chunk in r.iter_content(chunk_size=self._STREAM_CHUNK_SIZE):
                                 fd.write(chunk)
@@ -832,21 +855,30 @@ class BDownloader(object):
 
                             self._logger.error("Error while downloading {}(range:{}-{}/{}-{}): '{}'".format(
                                 os.path.basename(path_name), range_start, range_end, ctx_range['start'], file_end, str(e)))
-                            if tr < max_retries:
-                                self._logger.error("Retrying {}/{}...".format(tr + 1, max_retries))
-                                time.sleep(0.1)
                     else:
-                        range_req_satisfiable = False
                         msg = "Unexpected status code {}, which should have been {}. This may be caused by unsupported range request.".format(r.status_code, status_code)
                         self._logger.error(msg)
-                        if r.status_code == requests.codes.ok:  # In case the server responds with a '200' status code against a range request
-                            if tr < max_retries:
-                                self._logger.error("Retrying {}/{}...".format(tr + 1, max_retries))
-                                time.sleep(0.1)
+
+                        if alt_urls is None:
+                            # Get alternative URLs from statically allocated, sorted sources for now
+                            alt_urls = [alt_url for alt_url in ctx_file['alt_urls_sorted'] if alt_url != url]
+
+                        if not alt_urls or alt_try >= len(alt_urls):
+                            if r.status_code == requests.codes.ok:  # In case the server responds with a '200' status code against a range request
+                                range_req_satisfiable = False
+                            else:
+                                raise requests.RequestException(msg)
                         else:
-                            raise requests.RequestException(msg)
+                            url = alt_urls[alt_try]
+                            alt_try += 1
+
+                    if tr < max_retries:
+                        self._logger.error("Retrying {}/{}...".format(tr + 1, max_retries))
+                        time.sleep(0.1)
                 else:
-                    raise
+                    msg = "Task error while downloading {}(range: {}-{})".format(os.path.basename(path_name),
+                                                                                 ctx_range['start'], "")
+                    raise requests.RequestException(msg)
         except EnvironmentError as e:
             errno = e.errno if sys.platform != "win32" else e.winerror
             self._logger.error("Error number {}: '{}'".format(errno, e.strerror))
@@ -880,6 +912,25 @@ class BDownloader(object):
                 while ctx_url['refcnt'] % STRIPE_WIDTH:
                     ctx_url['refcnt'] += 1
                     yield [url]
+
+    def _get_alt_urls(self, path_name):
+        """Get alternative URLs from the multiple sources of the file to resume downloading from.
+
+        Args:
+            path_name (str): The full path name of the file to be downloaded.
+
+        Returns:
+            list: The alternative source URLs sorted by ascending `refcnt`.
+        """
+        ctx_file_urls = self._dl_ctx['files'][path_name]['urls']
+        if self._is_download_resumable(path_name):
+            url_ctxs = {url: ctx_url for url, ctx_url in ctx_file_urls.items() if ctx_url['accept_ranges'] == 'bytes'}
+        else:
+            url_ctxs = ctx_file_urls
+
+        url_ctxs_sorted = sorted(url_ctxs.items(), key=lambda (k, v): v['refcnt'])
+
+        return [url for url, _ in url_ctxs_sorted]
 
     @staticmethod
     def _get_fname_from_hdr(content_disposition):
@@ -1134,6 +1185,9 @@ class BDownloader(object):
                     'rt_dl_speed': 0,
                     'download_state': self.INPROCESS,
                     'url': next(iter_url)})
+
+            # set alternative URLs used to resume downloading from on error
+            ctx_file['alt_urls_sorted'] = self._get_alt_urls(file_path_name)
 
         return downloadable, path_url, orig_path_url
 
