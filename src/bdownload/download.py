@@ -136,11 +136,14 @@ def retry_requests(exceptions, backoff_factor=0.1, logger=None):
         status codes.
 
     References:
-         http://www.saltycrane.com/blog/2009/11/trying-out-retry-decorator-python/
-         https://en.wikipedia.org/wiki/Exponential_backoff
+         [1] http://www.saltycrane.com/blog/2009/11/trying-out-retry-decorator-python/
+
+         [2] https://en.wikipedia.org/wiki/Exponential_backoff
     """
     if logger is None:
         logger = logging.getLogger(__name__)
+
+    random.seed()
 
     def deco_retry(f):
 
@@ -160,10 +163,11 @@ def retry_requests(exceptions, backoff_factor=0.1, logger=None):
                     ntries += 1
                     if ntries > _requests_extended_retries_factor:
                         raise e
-                    steps = random.randrange(1, 2**ntries)
+                    steps = random.randrange(0, 2**ntries)
                     backoff = steps * backoff_factor
 
-                    logger.warning('{!r}, Retrying {}/{} in {:.2f} seconds...'.format(e, ntries, _requests_extended_retries_factor, backoff))
+                    logger.warning("Retrying %d/%d in %.2f seconds: '%r'",
+                                   ntries, _requests_extended_retries_factor, backoff, e)
 
                     time.sleep(backoff)
 
@@ -648,7 +652,7 @@ class BDownloader(object):
 
         self.progress = progress
         if self.progress not in ('bar', 'mill'):
-            self._logger.error("Error: invalid ProgressBar parameter '{}', default to 'mill'".format(self.progress))
+            self._logger.error("Error: invalid ProgressBar parameter '%s', default to 'mill'", self.progress)
             self.progress = 'mill'
 
     @staticmethod
@@ -760,17 +764,17 @@ class BDownloader(object):
                                         fd.write(chunk)
                                         ctx_range['offset'] += len(chunk)
                                 except requests.RequestException as e:
-                                    self._logger.error("Error while downloading {}(range:{}-{}/{}-{}): '{}'".format(
-                                        os.path.basename(path_name), start, end, ctx_range['start'],
-                                        ctx_range['end'], str(e)))
+                                    self._logger.error("Error while downloading '%s'(range:%d-%d/%d-%d): '%r'",
+                                                       os.path.basename(path_name), start, end, ctx_range['start'],
+                                                       ctx_range['end'], e)
 
                                     break
                             else:
                                 msg = "Unexpected status code {}, which should have been {}.".format(r.status_code, requests.codes.partial)
                                 raise requests.RequestException(msg)
                         except requests.RequestException as e:
-                            msg = "Error while downloading {}(range:{}-{}/{}-{}): '{}'".format(
-                                os.path.basename(path_name), start, end, ctx_range['start'], ctx_range['end'], str(e))
+                            msg = "Error while downloading '{}'(range:{}-{}/{}-{}): '{!r}'".format(
+                                os.path.basename(path_name), start, end, ctx_range['start'], ctx_range['end'], e)
                             self._logger.error(msg)
 
                             if alt_urls is None:
@@ -778,7 +782,7 @@ class BDownloader(object):
                                 alt_urls = [alt_url for alt_url in ctx_file['alt_urls_sorted'] if alt_url != url]
 
                             if not alt_urls or alt_try >= len(alt_urls):
-                                raise
+                                raise requests.RequestException(msg)
                             else:
                                 url = alt_urls[alt_try]
                                 alt_try += 1
@@ -788,19 +792,20 @@ class BDownloader(object):
                         break
 
                     if tr < max_retries:
-                        self._logger.error("Retrying {}/{}...".format(tr+1, max_retries))
+                        self._logger.error("Retrying %d/%d: '%s' at '%s'",
+                                           tr + 1, max_retries, os.path.basename(path_name), url)
                         time.sleep(0.1)
                 else:
-                    msg = "Task error while downloading {}(range: {}-{})".format(os.path.basename(path_name),
-                                                                                 ctx_range['start'], ctx_range['end'])
+                    msg = "Task error while downloading '{}'(range: {}-{})".format(os.path.basename(path_name),
+                                                                                   ctx_range['start'], ctx_range['end'])
                     raise requests.RequestException(msg)
         except EnvironmentError as e:
             errno = e.errno if sys.platform != "win32" else e.winerror
-            self._logger.error("Error number {}: '{}'".format(errno, e.strerror))
+            self._logger.error("Error while operating on '%s': 'Error number %d: %s'", path_name, errno, e.strerror)
 
             raise
 
-    def _get_remote_file_singlepart(self, path_name, req_range):
+    def _get_remote_file_singlewhole(self, path_name, req_range):
         """The worker thread body for downloading the whole of a file, as opposed to :meth:`_get_remote_file_multipart`.
 
         Args:
@@ -856,10 +861,12 @@ class BDownloader(object):
 
                                 break
                             except requests.RequestException as e:
-                                self._logger.error("Error while downloading {}(range:{}-{}/{}-{}): '{}'".format(
-                                    os.path.basename(path_name), range_start, range_end, ctx_range['start'], file_end, str(e)))
+                                self._logger.error("Error while downloading '%s'(range:%s-%s/%s-%s): '%r'",
+                                                   os.path.basename(path_name), range_start, range_end,
+                                                   ctx_range['start'], file_end, e)
                         else:
-                            msg = "Unexpected status code {}, which should have been {}. This may be caused by unsupported range request.".format(r.status_code, status_code)
+                            msg = "Unexpected status code {}, which should have been {}. " \
+                                  "This may be caused by ignored range request.".format(r.status_code, status_code)
                             self._logger.error(msg)
 
                             # In case the server responds with a '200' status code against a range request
@@ -868,26 +875,27 @@ class BDownloader(object):
                             else:
                                 raise requests.RequestException(msg)
                     except requests.RequestException as e:
-                        msg = "Error while downloading {}(range:{}-{}/{}-{}): '{}'".format(
-                            os.path.basename(path_name), range_start, range_end, ctx_range['start'], file_end, str(e))
+                        msg = "Error while downloading '{}'(range:{}-{}/{}-{}): '{!r}'".format(
+                            os.path.basename(path_name), range_start, range_end, ctx_range['start'], file_end, e)
                         self._logger.error(msg)
 
                         if not alt_urls or alt_try >= len(alt_urls):
-                            raise
+                            raise requests.RequestException(msg)
                         else:
                             url = alt_urls[alt_try]
                             alt_try += 1
 
                     if tr < max_retries:
-                        self._logger.error("Retrying {}/{}...".format(tr + 1, max_retries))
+                        self._logger.error("Retrying %d/%d: '%s' at '%s'",
+                                           tr + 1, max_retries, os.path.basename(path_name), url)
                         time.sleep(0.1)
                 else:
-                    msg = "Task error while downloading {}(range: {}-{})".format(os.path.basename(path_name),
-                                                                                 ctx_range['start'], "")
+                    msg = "Task error while downloading '{}'(range: {}-{})".format(os.path.basename(path_name),
+                                                                                   ctx_range['start'], "")
                     raise requests.RequestException(msg)
         except EnvironmentError as e:
             errno = e.errno if sys.platform != "win32" else e.winerror
-            self._logger.error("Error number {}: '{}'".format(errno, e.strerror))
+            self._logger.error("Error while operating on '%s': 'Error number %d: %s'", path_name, errno, e.strerror)
 
             raise
 
@@ -1094,9 +1102,9 @@ class BDownloader(object):
                             ctx_file['length'] = file_len
                         else:
                             if file_len != ctx_file['length']:
-                                self._logger.error("'{}': File size obtained from '{}' happened to mismatch with that "
-                                                   "from others, downloading will continue but the downloaded file may "
-                                                   "not be the intended one!".format(path_url[0], url))
+                                self._logger.error("Error: size of '%s' obtained from '%s' happened to mismatch with "
+                                                   "that from others, downloading will continue but the downloaded file"
+                                                   " may not be the intended one!", path_url[0], url)
 
                                 r.close()
                                 continue
@@ -1118,13 +1126,13 @@ class BDownloader(object):
                     downloadable = True
                     active_urls.append(url)
                 else:
-                    self._logger.warning("'{}': Unexpected status code {}: trying to determine the file size "
-                                         "using '{}'".format(path_url[0], r.status_code, url))
+                    self._logger.warning("Unexpected status code %d: trying to determine the size of '%s' using '%s'",
+                                         r.status_code, path_url[0], url)
 
                 r.close()
             except requests.RequestException as e:
-                self._logger.error("'{}': Error while trying to determine the file size "
-                                   "using '{}': '{}'".format(path_url[0], url, str(e)))
+                self._logger.error("Error while trying to determine the size of '%s' using '%s': '%r'",
+                                   path_url[0], url, e)
 
         if downloadable:
             if not file_name:
@@ -1136,8 +1144,8 @@ class BDownloader(object):
             # check for conflicting `file_path_name` in downloading jobs
             if file_path_name in self._dl_ctx['files']:
                 dup_orig_path_url = self._dl_ctx['files'][file_path_name]['orig_path_url']
-                self._logger.error("{!r}: Full path name conflicting error: {!r}; Already in downloading: "
-                                   "{!r}".format(file_path_name, orig_path_url, dup_orig_path_url))
+                self._logger.error("Full path name conflicting error: '%s'. Intended: '%r';already in downloading: '%r'",
+                                   file_path_name, orig_path_url, dup_orig_path_url)
 
                 return False, path_url, orig_path_url
 
@@ -1151,10 +1159,13 @@ class BDownloader(object):
                     pass
             except (EnvironmentError, DistutilsFileError) as e:
                 if isinstance(e, DistutilsFileError):
-                    msg = "{!r}: Error: {!r}; Try downloading: {!r}".format(file_path_name, str(e), orig_path_url)
+                    msg = "Error while operating on '{}': '{!r}'; Try downloading: '{!r}'".format(file_path_name,
+                                                                                                  e, orig_path_url)
                 else:
                     errno = e.errno if sys.platform != "win32" else e.winerror
-                    msg = "{!r}: Error number {}: {!r}; Try downloading: {!r}".format(file_path_name, errno, e.strerror, orig_path_url)
+                    msg = "Error while operating on '{}': 'Error number {}: {}'; " \
+                          "Try downloading: '{!r}'".format(file_path_name, errno, e.strerror, orig_path_url)
+
                 self._logger.error(msg)
 
                 if top_missing_dir:
@@ -1262,7 +1273,7 @@ class BDownloader(object):
             if len(ctx_file["ranges"]) > 1:
                 tsk = self._get_remote_file_multipart
             else:
-                tsk = self._get_remote_file_singlepart
+                tsk = self._get_remote_file_singlewhole
 
             for req_range, ctx_range in ctx_file["ranges"].items():
                 future = self.executor.submit(tsk, path_name, req_range)
@@ -1380,7 +1391,8 @@ class BDownloader(object):
                 A valid `path_urls`, for example, could be [('/opt/files/bar.tar.bz2', ``'https://foo.cc/bar.tar.bz2'``),
                 ('./sanguoshuowen.pdf', ``'https://bar.cc/sanguoshuowen.pdf\\thttps://foo.cc/sanguoshuowen.pdf'``),
                 ('/**to**/**be**/created/', ``'https://flash.jiefang.rmy/lc-cl/gaozhuang/chelsia/rockspeaker.tar.gz'``),
-                ('/path/to/**existing**-dir', ``'https://ghosthat.bar/foo/puretonecone81.xz\\thttps://tpot.horn/foo/puretonecone81.xz\\thttps://hawkhill.bar/foo/puretonecone81.xz'``)].
+                ('/path/to/**existing**-dir', ``'https://ghosthat.bar/foo/puretonecone81.xz\\thttps://tpot.horn/foo/pure
+                tonecone81.xz\\thttps://hawkhill.bar/foo/puretonecone81.xz'``)].
 
         Returns:
             None.
