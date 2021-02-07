@@ -61,7 +61,7 @@ RETRY_BACKOFF_FACTOR = 0.1
 #: set: Default status codes to retry on intended for the underlying ``urllib3``.
 URLLIB3_RETRY_STATUS_CODES = frozenset([413, 429, 500, 502, 503, 504])
 
-COOKIE_STR_REGEX = re.compile('\s*(?:[^,; =]+=[^,; ]+\s*(?:$|\s+|;\s*))+\s*')
+COOKIE_STR_REGEX = re.compile(r'\s*(?:[^,; =]+=[^,; ]+\s*(?:$|\s+|;\s*))+\s*')
 """A compiled regular expression object used to match the cookie string in the form of key/value pairs.
 
 See also :meth:`BDownloader.__init__()` for more details about `cookies`.
