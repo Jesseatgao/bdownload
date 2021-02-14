@@ -310,3 +310,7 @@ bdownload [-h] [-o OUTPUT [OUTPUT ...]] [-D DIR] -L URLS [URLS ...]
 
     logger level [default: warning]
 
+### Donation
+    If you like the project, please support it by donation
+    [![PayPal donate button](https://img.shields.io/badge/paypal-donate-yellow.svg)](
+    https://www.paypal.com/cgi-bin/webscr?cmd=_xclick&business=changxigao@gmail.com&item_name=Support%20bdownload&currency_code=USD)
