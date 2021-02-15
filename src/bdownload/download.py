@@ -631,6 +631,7 @@ class BDownloader(object):
         self.all_done = False  # Flag denoting the completion of all the download jobs
         # Flag indicating that **all** the download tasks have been submitted, i.e. no more downloads to be added
         self.all_submitted = False
+        self.sigint = False  # Received the SIGINT (i.e. Control-C) signal?
         self.stop = False   # Flag signaling waiting threads to exit
         self._dl_ctx = {"total_size": 0, "accurate": True, "files": {}, "futures": {}}  # see CTX structure definition
 
@@ -763,6 +764,9 @@ class BDownloader(object):
                                     for chunk in r.iter_content(chunk_size=self._STREAM_CHUNK_SIZE):
                                         fd.write(chunk)
                                         ctx_range['offset'] += len(chunk)
+
+                                        if self.sigint:
+                                            raise EOFError("The download was intentionally interrupted by the user!")
                                 except requests.RequestException as e:
                                     self._logger.error("Error while downloading '%s'(range:%d-%d/%d-%d): '%r'",
                                                        os.path.basename(path_name), start, end, ctx_range['start'],
@@ -858,6 +862,9 @@ class BDownloader(object):
 
                                     if headers:
                                         range_start = ctx_range['start'] + ctx_range['offset']
+
+                                    if self.sigint:
+                                        raise EOFError("The download was intentionally interrupted by the user!")
 
                                 break
                             except requests.RequestException as e:
@@ -1438,7 +1445,12 @@ class BDownloader(object):
         """
         self.all_submitted = True
         if self.active_downloads_added:
-            self.all_done_event.wait()
+            try:
+                while not self.all_done_event.is_set():
+                    self.all_done_event.wait(0.5)
+            except KeyboardInterrupt:
+                self.sigint = True
+                self.all_done_event.wait()
 
         # return both the succeeded and failed downloads
         succeeded = [path_url for path_url in self.active_downloads_added if path_url not in self.failed_downloads_in_running]
