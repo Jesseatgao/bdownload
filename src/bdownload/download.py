@@ -526,7 +526,7 @@ class BDownloader(object):
     SUCCEEDED = 'succeeded'
     CANCELLED = 'cancelled'
 
-    # _COMPLETED = [FAILED, SUCCEEDED]
+    _FILE_COMPLETED = [FAILED, SUCCEEDED]
 
     _FILE_STATES = [INPROCESS, FAILED, SUCCEEDED]
     _RANGE_STATES = [INPROCESS, FAILED, CANCELLED, SUCCEEDED]
@@ -632,6 +632,7 @@ class BDownloader(object):
         # Flag indicating that **all** the download tasks have been submitted, i.e. no more downloads to be added
         self.all_submitted = False
         self.sigint = False  # Received the SIGINT (i.e. Control-C) signal?
+        self.cancelled_on_sigint = False  # Flag indicating that cancellation of all the tasks have been done on demand
         self.stop = False   # Flag signaling waiting threads to exit
         self._dl_ctx = {"total_size": 0, "accurate": True, "files": {}, "futures": {}}  # see CTX structure definition
 
@@ -1239,31 +1240,6 @@ class BDownloader(object):
 
         return active, active_orig, failed, failed_orig
 
-    def _future_done_cb(self, future):
-        """Update the download states when the worker thread completed.
-
-        This method will be called to update the download states of the interested chunk and the file it belongs to when
-        the worker thread completed, ether because of finished without error, raised on exception or cancelled intentionally.
-
-        Args:
-            future (concurrent.futures.Future): The ``Future`` instance representing the running of the worker thread
-                performing the download of a single chunk or the whole of a file.
-
-        Returns:
-            None.
-        """
-        ctx_file = self._dl_ctx['files'][self._dl_ctx['futures'][future]['file']]
-        ctx_range = ctx_file['ranges'][self._dl_ctx['futures'][future]['range']]
-        try:
-            exception = future.exception()
-            if exception is None:
-                ctx_range['download_state'] = self.SUCCEEDED
-            else:
-                ctx_file['download_state'] = self.FAILED
-                ctx_range['download_state'] = self.FAILED
-        except CancelledError:
-            ctx_range['download_state'] = self.CANCELLED
-
     def _submit_dl_tasks(self, path_urls):
         """Submit the download tasks of the files to the thread pool.
 
@@ -1291,7 +1267,6 @@ class BDownloader(object):
                     "file": path_name,
                     "range": req_range
                 }
-                future.add_done_callback(self._future_done_cb)
 
     def _is_all_done(self):
         """Check if all the tasks have completed.
@@ -1300,29 +1275,65 @@ class BDownloader(object):
             bool: ``True`` if all the ``Future``\ s have been done, meaning that all the files have finished downloading,
             whether successfully or not; ``False`` otherwise.
         """
-        return all(f.done() for f in self._dl_ctx['futures'])
+        return all(ctx_file['download_state'] in self._FILE_COMPLETED for ctx_file in self._dl_ctx['files'].values())
 
     def _state_mgmnt(self):
         """Perform the state-related operations of file downloading.
 
-        The only thing this method currently does is to cancel the downloading tasks of a file when it has failed,
-        repeatedly on the downloading queue.
+        This method updates the download status of the files and their related chunks when the associated worker threads
+        completed, either because of finished without error, raised on exception or cancelled intentionally.
 
         Returns:
             None.
         """
-        for ctx_path_name in self._dl_ctx['files'].values():
-            if ctx_path_name['download_state'] == self.FAILED and (not ctx_path_name['cancelled_on_exception']):
-                fs = ctx_path_name['futures']
-                fs_num = len(fs)
-                tsk_num = ctx_path_name['tsk_num']
-                if fs_num == tsk_num:  # Make sure that all the tasks of the file have been submitted
-                    # Cancel the download of the failed file
-                    for future in fs:
-                        future.cancel()
+        # Cancel the downloading tasks repeatedly on the downloading queue when interrupted
+        if self.sigint and (not self.cancelled_on_sigint):
+            for f in self._dl_ctx['futures']:
+                f.cancel()
 
-                    ctx_path_name['cancelled_on_exception'] = True
-                    self.failed_downloads_in_running.append(ctx_path_name['orig_path_url'])
+            self.cancelled_on_sigint = True
+
+        for ctx_file in self._dl_ctx['files'].values():
+            if ctx_file['download_state'] == self.INPROCESS:
+                ranges_all_done = True
+                future_aborted = False
+
+                fs = ctx_file['futures']
+                fs_num = len(fs)
+                tsk_num = ctx_file['tsk_num']
+                if fs_num == tsk_num:  # Make sure that all the tasks of the file have been submitted
+                    for ctx_range in ctx_file['ranges'].values():
+                        future = ctx_range['future']
+                        if future.done():
+                            if ctx_range['download_state'] == self.INPROCESS:
+                                try:
+                                    exception = future.exception()
+                                    if exception is None:
+                                        ctx_range['download_state'] = self.SUCCEEDED
+                                    else:  # exception raised
+                                        ctx_range['download_state'] = self.FAILED
+                                        future_aborted = True
+
+                                        if not (self.cancelled_on_sigint or ctx_file['cancelled_on_exception']):
+                                            # Cancel the download of the failed file
+                                            for f in fs:
+                                                f.cancel()
+
+                                            ctx_file['cancelled_on_exception'] = True
+                                except CancelledError:
+                                    ctx_range['download_state'] = self.CANCELLED
+                                    future_aborted = True
+                        else:
+                            ranges_all_done = False
+                else:
+                    ranges_all_done = False
+
+                if ranges_all_done:
+                    if not future_aborted:
+                        ctx_file['download_state'] = self.SUCCEEDED
+                    else:
+                        ctx_file['download_state'] = self.FAILED
+                        self.failed_downloads_in_running.append(ctx_file['orig_path_url'])
 
     def _mgmnt_task(self):
         """The management thread body.
@@ -1337,10 +1348,10 @@ class BDownloader(object):
             self._state_mgmnt()
 
             if self.all_submitted and self._is_all_done():
-                self._state_mgmnt()
-
                 self.all_done_event.set()
                 self.all_done = True
+
+                continue
 
             time.sleep(0.1)
 
