@@ -1408,7 +1408,7 @@ class BDownloader(object):
             time.sleep(0.1)
         else:
             progress_bar.last_progress = self._dl_ctx['total_size'] \
-                if self._dl_ctx['accurate'] and not self.failed_downloads_in_running else self._calc_completed()
+                if self._dl_ctx['accurate'] and not (self.failed_downloads_in_running or self.sigint) else self._calc_completed()
             progress_bar.expected_size = self._dl_ctx['total_size']
             progress_bar.done()
 
