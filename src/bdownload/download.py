@@ -44,6 +44,13 @@ here = os.path.dirname(os.path.abspath(__file__))
 with open(os.path.join(here, 'VERSION'), mode='r') as fd:
     __version__ = fd.read().strip()
 
+_py3plus = (sys.version_info[0] >= 3)  # Is Python version 3 and above?
+if not _py3plus:
+    from functools import partial
+
+    _os_exit_force = partial(os._exit, -1)
+
+
 # Default retry configuration
 
 #: int: Default number of retries factor for :data:`_requests_extended_retries_factor`.
@@ -536,6 +543,12 @@ class BDownloader(object):
 
     # Default chunk size for streaming the download
     _STREAM_CHUNK_SIZE = 7168  # FIXME: requests #5536
+
+    # The number of time to wait in seconds before shutdown when interrupted on Python2.x
+    _PY2_SIGINT_WAIT_TIMEOUT = 3
+
+    # The number of time to wait in seconds for joining the thread when interrupted on Python2.x
+    _PY2_SIGINT_JOIN_TIMEOUT = 3
 
     def __enter__(self):
         return self
@@ -1461,7 +1474,10 @@ class BDownloader(object):
                     self.all_done_event.wait(0.5)
             except KeyboardInterrupt:
                 self.sigint = True
-                self.all_done_event.wait()
+
+                # https://github.com/agronholm/pythonfutures/issues/25
+                timeout = None if _py3plus else self._PY2_SIGINT_WAIT_TIMEOUT
+                self.all_done_event.wait(timeout)
 
         # return both the succeeded and failed downloads
         succeeded = [path_url for path_url in self.active_downloads_added if path_url not in self.failed_downloads_in_running]
@@ -1475,11 +1491,20 @@ class BDownloader(object):
         Returns:
             None.
         """
-        self.executor.shutdown()
 
         self.stop = True
+
+        if self.sigint and not _py3plus:
+            timeout = self._PY2_SIGINT_JOIN_TIMEOUT
+            shutdown = _os_exit_force  # non-gracefully shutdown on Python 2.x when interrupted
+        else:
+            timeout = None
+            shutdown = self.executor.shutdown
+
         if self.progress_thread is not None:
-            self.progress_thread.join()
+            self.progress_thread.join(timeout)
 
         if self.mgmnt_thread is not None:
-            self.mgmnt_thread.join()
+            self.mgmnt_thread.join(timeout)
+
+        shutdown()
