@@ -272,7 +272,9 @@ def main():
             downloader.downloads(path_urls)
             succeeded, failed = downloader.wait_for_all()
     except Exception as e:
-        print('{}'.format(repr(e)))
+        print(repr(e))
+        exit_code = -1
+    except KeyboardInterrupt:
         exit_code = -1
 
     if succeeded:

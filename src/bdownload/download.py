@@ -548,7 +548,7 @@ class BDownloader(object):
     _PY2_SIGINT_WAIT_TIMEOUT = 3
 
     # The number of time to wait in seconds for joining the thread when interrupted on Python2.x
-    _PY2_SIGINT_JOIN_TIMEOUT = 3
+    _PY2_SIGINT_JOIN_TIMEOUT = 1
 
     def __enter__(self):
         return self
@@ -657,6 +657,8 @@ class BDownloader(object):
         self.failed_downloads_on_addition = []
         # list: A subset of :attr:`BDownloader.active_downloads_added`, the downloading of which aborted abnormally.
         self.failed_downloads_in_running = []
+        # list: The succeeded downloads, being a subset of :attr:`BDownloader.active_downloads_added`.
+        self.succeeded_downloads_in_running = []
 
         if logger is None:
             logger = logging.getLogger(__name__)
@@ -734,6 +736,14 @@ class BDownloader(object):
             bool: ``True`` if the server accepts range requests for the file, otherwise ``False``.
         """
         return True if self._dl_ctx['files'][path_name]['resumable'] else False
+
+    def _raise_on_interrupt(self):
+        """Raise a generic exception signaling that the downloads have been terminated by the user.
+
+        Raises:
+            :obj:`Exception`: Raised when the termination or cancellation flag has been set.
+        """
+        pass
 
     def _get_remote_file_multipart(self, path_name, req_range):
         """The worker thread body for downloading an assigned piece of a file.
@@ -1344,6 +1354,7 @@ class BDownloader(object):
                 if ranges_all_done:
                     if not future_aborted:
                         ctx_file['download_state'] = self.SUCCEEDED
+                        self.succeeded_downloads_in_running.append(ctx_file['orig_path_url'])
                     else:
                         ctx_file['download_state'] = self.FAILED
                         self.failed_downloads_in_running.append(ctx_file['orig_path_url'])
@@ -1361,8 +1372,8 @@ class BDownloader(object):
             self._state_mgmnt()
 
             if self.all_submitted and self._is_all_done():
-                self.all_done_event.set()
                 self.all_done = True
+                self.all_done_event.set()
 
                 continue
 
@@ -1459,6 +1470,22 @@ class BDownloader(object):
         """
         return self.downloads([(path_name, url)])
 
+    def _result(self):
+        """"Return both the succeeded and failed downloads when all done or interrupted by user.
+
+        Returns:
+            tuple of list: Same as that returned by :meth:`wait_for_all`.
+        """
+        #
+        succeeded = self.succeeded_downloads_in_running
+
+        # `failed_downloads_in_running` may not equal `self.failed_downloads_in_running`, e.g. when interrupted on Py2.x
+        # Furthermore, it may not be the case as its name suggested for the same reason
+        failed_downloads_in_running = [path_url for path_url in self.active_downloads_added if path_url not in succeeded]
+        failed = self.failed_downloads_on_addition + failed_downloads_in_running
+
+        return succeeded, failed
+
     def wait_for_all(self):
         """Wait for all the downloading jobs to complete.
 
@@ -1470,20 +1497,30 @@ class BDownloader(object):
         self.all_submitted = True
         if self.active_downloads_added:
             try:
-                while not self.all_done_event.is_set():
+                while not self.all_done:
                     self.all_done_event.wait(0.5)
-            except KeyboardInterrupt:
+            except KeyboardInterrupt:  # run in the main thread
                 self.sigint = True
 
                 # https://github.com/agronholm/pythonfutures/issues/25
                 timeout = None if _py3plus else self._PY2_SIGINT_WAIT_TIMEOUT
                 self.all_done_event.wait(timeout)
 
-        # return both the succeeded and failed downloads
-        succeeded = [path_url for path_url in self.active_downloads_added if path_url not in self.failed_downloads_in_running]
-        failed = self.failed_downloads_on_addition + self.failed_downloads_in_running
+                succeeded, failed = self._result()
+                msg = 'The download was interrupted by the user: '\
+                      '"succeeded in downloading: {!r}; failed to download: {!r}"'.format(succeeded, failed)
+                self._logger.warning(msg)
+                raise KeyboardInterrupt(msg)
 
-        return succeeded, failed
+        return self._result()
+
+    def cancel(self):
+        """Cancel all the download jobs.
+
+        Returns:
+            None.
+        """
+        pass
 
     def close(self):
         """Shut down and perform the cleanup.
@@ -1497,6 +1534,10 @@ class BDownloader(object):
         if self.sigint and not _py3plus:
             timeout = self._PY2_SIGINT_JOIN_TIMEOUT
             shutdown = _os_exit_force  # non-gracefully shutdown on Python 2.x when interrupted
+
+            # flush stdio buffers before forcibly shutting down
+            sys.stdout.flush()
+            sys.stderr.flush()
         else:
             timeout = None
             shutdown = self.executor.shutdown
