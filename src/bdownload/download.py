@@ -741,13 +741,13 @@ class BDownloader(object):
         return True if self._dl_ctx['files'][path_name]['resumable'] else False
 
     def _raise_on_interrupt(self):
-        """Raise a generic exception signaling that the downloads have been terminated by the user.
+        """Raise a customized exception signaling that the downloads have been terminated by the user.
 
         Raises:
-            :obj:`Exception`: Raised when the termination or cancellation flag has been set.
+            :class:`BDownloaderException`: Raised when the termination or cancellation flag has been set.
         """
         if self.sigint or self.sigquit:
-            raise Exception("The download was intentionally interrupted by the user!")
+            raise BDownloaderException("The download was intentionally interrupted by the user!")
 
     def _get_remote_file_multipart(self, path_name, req_range):
         """The worker thread body for downloading an assigned piece of a file.
@@ -813,7 +813,7 @@ class BDownloader(object):
                                 alt_urls = [alt_url for alt_url in ctx_file['alt_urls_sorted'] if alt_url != url]
 
                             if not alt_urls or alt_try >= len(alt_urls):
-                                raise requests.RequestException(msg)
+                                raise BDownloaderException(msg)
                             else:
                                 url = alt_urls[alt_try]
                                 alt_try += 1
@@ -829,7 +829,7 @@ class BDownloader(object):
                 else:
                     msg = "Task error while downloading '{}'(range: {}-{})".format(os.path.basename(path_name),
                                                                                    ctx_range['start'], ctx_range['end'])
-                    raise requests.RequestException(msg)
+                    raise BDownloaderException(msg)
         except EnvironmentError as e:
             errno = e.errno if sys.platform != "win32" else e.winerror
             self._logger.error("Error while operating on '%s': 'Error number %d: %s'", path_name, errno, e.strerror)
@@ -913,7 +913,7 @@ class BDownloader(object):
                         self._logger.error(msg)
 
                         if not alt_urls or alt_try >= len(alt_urls):
-                            raise requests.RequestException(msg)
+                            raise BDownloaderException(msg)
                         else:
                             url = alt_urls[alt_try]
                             alt_try += 1
@@ -925,7 +925,7 @@ class BDownloader(object):
                 else:
                     msg = "Task error while downloading '{}'(range: {}-{})".format(os.path.basename(path_name),
                                                                                    ctx_range['start'], "")
-                    raise requests.RequestException(msg)
+                    raise BDownloaderException(msg)
         except EnvironmentError as e:
             errno = e.errno if sys.platform != "win32" else e.winerror
             self._logger.error("Error while operating on '%s': 'Error number %d: %s'", path_name, errno, e.strerror)
@@ -1524,7 +1524,7 @@ class BDownloader(object):
         """Cancel all the download jobs.
 
         Args:
-            keyboard_interrupt (bool): Whether or not the user hit the interrupt key (e.g. Ctrl-C).
+            keyboard_interrupt (bool): Specifies whether or not the user hit the interrupt key (e.g. Ctrl-C).
 
         Returns:
             None.
@@ -1561,3 +1561,8 @@ class BDownloader(object):
             self.mgmnt_thread.join(timeout)
 
         shutdown()
+
+
+class BDownloaderException(Exception):
+    """The exception indicating that an error occurred while executing the download tasks."""
+    pass

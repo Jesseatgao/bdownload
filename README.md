@@ -131,6 +131,14 @@ BDownloader.close()
     Shut down and perform the cleanup.
 
 `
+BDownloader.cancel(keyboard_interrupt=True)
+`
+
+    Cancel all the download jobs.
+
+  * `keyboard_interrupt` specifies whether the user hit the interrupt key (e.g. Ctrl-C).
+
+`
 bdownload.set_requests_retries_factor(retries)
 `
 
