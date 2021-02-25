@@ -544,9 +544,10 @@ class BDownloader(object):
     # Default chunk size for streaming the download
     _STREAM_CHUNK_SIZE = 7168  # FIXME: requests #5536
 
+    # The timeout value to allow the waiting event to be interruptible
+    _INTERRUPTIBLE_WAIT_TIMEOUT = 0.5
     # The number of time to wait in seconds before shutdown when interrupted on Python2.x
     _PY2_SIGINT_WAIT_TIMEOUT = 3
-
     # The number of time to wait in seconds for joining the thread when interrupted on Python2.x
     _PY2_SIGINT_JOIN_TIMEOUT = 1
 
@@ -644,9 +645,11 @@ class BDownloader(object):
         self.all_done = False  # Flag denoting the completion of all the download jobs
         # Flag indicating that **all** the download tasks have been submitted, i.e. no more downloads to be added
         self.all_submitted = False
-        self.sigint = False  # Received the SIGINT (i.e. Control-C) signal?
-        self.cancelled_on_sigint = False  # Flag indicating that cancellation of all the tasks have been done on demand
-        self.stop = False   # Flag signaling waiting threads to exit
+        self.sigint = False  # Received the SIGINT (i.e. `KeyboardInterrupt`) signal, e.g. raised by hitting `Ctrl-C`?
+        self.sigquit = False  # Received the QUIT command, e.g. triggered by pressing `q`?
+        # Flag indicating that cancellation of all the tasks have been done on demand, e.g. by pressing `Ctrl-C` or `q`
+        self.cancelled_on_interrupt = False
+        self.stop = False  # Flag signaling waiting threads to exit
         self._dl_ctx = {"total_size": 0, "accurate": True, "files": {}, "futures": {}}  # see CTX structure definition
 
         # list: A downloadable subset of all the `(path, url)`\ s that were passed to :meth:`BDownloader.download` or
@@ -743,7 +746,8 @@ class BDownloader(object):
         Raises:
             :obj:`Exception`: Raised when the termination or cancellation flag has been set.
         """
-        pass
+        if self.sigint or self.sigquit:
+            raise Exception("The download was intentionally interrupted by the user!")
 
     def _get_remote_file_multipart(self, path_name, req_range):
         """The worker thread body for downloading an assigned piece of a file.
@@ -789,8 +793,7 @@ class BDownloader(object):
                                         fd.write(chunk)
                                         ctx_range['offset'] += len(chunk)
 
-                                        if self.sigint:
-                                            raise EOFError("The download was intentionally interrupted by the user!")
+                                        self._raise_on_interrupt()
                                 except requests.RequestException as e:
                                     self._logger.error("Error while downloading '%s'(range:%d-%d/%d-%d): '%r'",
                                                        os.path.basename(path_name), start, end, ctx_range['start'],
@@ -887,8 +890,7 @@ class BDownloader(object):
                                     if headers:
                                         range_start = ctx_range['start'] + ctx_range['offset']
 
-                                    if self.sigint:
-                                        raise EOFError("The download was intentionally interrupted by the user!")
+                                    self._raise_on_interrupt()
 
                                 break
                             except requests.RequestException as e:
@@ -1310,11 +1312,11 @@ class BDownloader(object):
             None.
         """
         # Cancel the downloading tasks repeatedly on the downloading queue when interrupted
-        if self.sigint and (not self.cancelled_on_sigint):
+        if (self.sigint or self.sigquit) and (not self.cancelled_on_interrupt):
             for f in self._dl_ctx['futures']:
                 f.cancel()
 
-            self.cancelled_on_sigint = True
+            self.cancelled_on_interrupt = True
 
         for ctx_file in self._dl_ctx['files'].values():
             if ctx_file['download_state'] == self.INPROCESS:
@@ -1337,7 +1339,7 @@ class BDownloader(object):
                                         ctx_range['download_state'] = self.FAILED
                                         future_aborted = True
 
-                                        if not (self.cancelled_on_sigint or ctx_file['cancelled_on_exception']):
+                                        if not (self.cancelled_on_interrupt or ctx_file['cancelled_on_exception']):
                                             # Cancel the download of the failed file
                                             for f in fs:
                                                 f.cancel()
@@ -1419,7 +1421,8 @@ class BDownloader(object):
             time.sleep(0.1)
         else:
             progress_bar.last_progress = self._dl_ctx['total_size'] \
-                if self._dl_ctx['accurate'] and not (self.failed_downloads_in_running or self.sigint) else self._calc_completed()
+                if self._dl_ctx['accurate'] and not (self.failed_downloads_in_running or self.sigint or self.sigquit) \
+                else self._calc_completed()
             progress_bar.expected_size = self._dl_ctx['total_size']
             progress_bar.done()
 
@@ -1476,7 +1479,6 @@ class BDownloader(object):
         Returns:
             tuple of list: Same as that returned by :meth:`wait_for_all`.
         """
-        #
         succeeded = self.succeeded_downloads_in_running
 
         # `failed_downloads_in_running` may not equal `self.failed_downloads_in_running`, e.g. when interrupted on Py2.x
@@ -1493,13 +1495,17 @@ class BDownloader(object):
             tuple of list: A 2-tuple of lists ``'(succeeded, failed)'``. The first list ``succeeded`` contains the
             originally passed ``(path, url)``\ s that finished successfully, while the second list ``failed`` contains
             the raised and cancelled ones.
+
+        Raises:
+            KeyboardInterrupt: Re-raised the caught exception when run in the main thread
         """
         self.all_submitted = True
         if self.active_downloads_added:
             try:
                 while not self.all_done:
-                    self.all_done_event.wait(0.5)
-            except KeyboardInterrupt:  # run in the main thread
+                    timeout = self._INTERRUPTIBLE_WAIT_TIMEOUT if not self.sigquit else None
+                    self.all_done_event.wait(timeout)
+            except KeyboardInterrupt:  # caught when run in the main thread
                 self.sigint = True
 
                 # https://github.com/agronholm/pythonfutures/issues/25
@@ -1514,13 +1520,19 @@ class BDownloader(object):
 
         return self._result()
 
-    def cancel(self):
+    def cancel(self, keyboard_interrupt=True):
         """Cancel all the download jobs.
+
+        Args:
+            keyboard_interrupt (bool): Whether or not the user hit the interrupt key (e.g. Ctrl-C).
 
         Returns:
             None.
         """
-        pass
+        if keyboard_interrupt:
+            self.sigint = True
+        else:
+            self.sigquit = True
 
     def close(self):
         """Shut down and perform the cleanup.
