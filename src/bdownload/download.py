@@ -528,15 +528,16 @@ class BDownloader(object):
         }
     """
     # Possible download states of the files and ranges
-    INPROCESS = 'inprocess'  # pending or downloading
-    FAILED = 'failed'
-    SUCCEEDED = 'succeeded'
-    CANCELLED = 'cancelled'
+    PENDING = 'pending'      # submitted but not yet processed
+    INPROCESS = 'inprocess'  # in downloading
+    FAILED = 'failed'        # aborted with exception raised
+    SUCCEEDED = 'succeeded'  # finished without error
+    CANCELLED = 'cancelled'  # aborted without being processed
 
-    _FILE_COMPLETED = [FAILED, SUCCEEDED]
+    _COMPLETED = [FAILED, CANCELLED, SUCCEEDED]
 
-    _FILE_STATES = [INPROCESS, FAILED, SUCCEEDED]
-    _RANGE_STATES = [INPROCESS, FAILED, CANCELLED, SUCCEEDED]
+    _FILE_STATES = [PENDING, INPROCESS, FAILED, CANCELLED, SUCCEEDED]
+    _RANGE_STATES = [PENDING, INPROCESS, FAILED, CANCELLED, SUCCEEDED]
 
     # Default value for `max_workers`
     _MAX_WORKERS = (_cpu_count() or 1) * 5  # In line with `futures`
@@ -772,6 +773,10 @@ class BDownloader(object):
         alt_try = 0  # number of tries at alternative URLs
         max_retries = self.retries_resumption
 
+        ctx_range['download_state'] = self.INPROCESS
+        if ctx_file['download_state'] == self.PENDING:
+            ctx_file['download_state'] = self.INPROCESS
+
         try:
             with open(path_name, mode='r+b') as fd:
                 for tr in range(max_retries+1):
@@ -862,6 +867,10 @@ class BDownloader(object):
         range_req_satisfiable = True  # The serve may choose to ignore the `Range` header
 
         range_end = file_end = ctx_file['length'] if ctx_file['length'] else ''
+
+        ctx_range['download_state'] = self.INPROCESS
+        if ctx_file['download_state'] == self.PENDING:
+            ctx_file['download_state'] = self.INPROCESS
 
         try:
             with open(path_name, mode='r+b') as fd:
@@ -1120,7 +1129,7 @@ class BDownloader(object):
             file_path = path_head
 
         urls = url.split('\t')  # maybe TAB-separated URLs
-        ctx_file = {'length': 0, 'resumable': False, 'download_state': self.INPROCESS, 'cancelled_on_exception': False,
+        ctx_file = {'length': 0, 'resumable': False, 'download_state': self.PENDING, 'cancelled_on_exception': False,
                     'futures': [], 'tsk_num': 0, 'orig_path_url': orig_path_url, 'urls': {}, 'ranges': {}}
 
         active_urls = []
@@ -1233,7 +1242,7 @@ class BDownloader(object):
                     'offset': 0,
                     'start_time': 0,
                     'rt_dl_speed': 0,
-                    'download_state': self.INPROCESS,
+                    'download_state': self.PENDING,
                     'url': next(iter_url)})
 
             # set alternative URLs used to resume downloading from on error
@@ -1276,19 +1285,19 @@ class BDownloader(object):
             None.
         """
         for path_name, _ in path_urls:
-            ctx_file = self._dl_ctx["files"][path_name]
+            ctx_file = self._dl_ctx['files'][path_name]
 
-            if len(ctx_file["ranges"]) > 1:
+            if len(ctx_file['ranges']) > 1:
                 tsk = self._get_remote_file_multipart
             else:
                 tsk = self._get_remote_file_singlewhole
 
-            for req_range, ctx_range in ctx_file["ranges"].items():
+            for req_range, ctx_range in ctx_file['ranges'].items():
                 future = self.executor.submit(tsk, path_name, req_range)
-                ctx_file["futures"].append(future)
-                ctx_range["future"] = future
-                ctx_range["start_time"] = time.time()
-                self._dl_ctx["futures"][future] = {
+                ctx_file['futures'].append(future)
+                ctx_range['future'] = future
+                ctx_range['start_time'] = time.time()
+                self._dl_ctx['futures'][future] = {
                     "file": path_name,
                     "range": req_range
                 }
@@ -1300,7 +1309,7 @@ class BDownloader(object):
             bool: ``True`` if all the ``Future``\ s have been done, meaning that all the files have finished downloading,
             whether successfully or not; ``False`` otherwise.
         """
-        return all(ctx_file['download_state'] in self._FILE_COMPLETED for ctx_file in self._dl_ctx['files'].values())
+        return all(ctx_file['download_state'] in self._COMPLETED for ctx_file in self._dl_ctx['files'].values())
 
     def _state_mgmnt(self):
         """Perform the state-related operations of file downloading.
@@ -1319,7 +1328,7 @@ class BDownloader(object):
             self.cancelled_on_interrupt = True
 
         for ctx_file in self._dl_ctx['files'].values():
-            if ctx_file['download_state'] == self.INPROCESS:
+            if ctx_file['download_state'] not in self._COMPLETED:
                 ranges_all_done = True
                 future_aborted = False
 
@@ -1330,7 +1339,7 @@ class BDownloader(object):
                     for ctx_range in ctx_file['ranges'].values():
                         future = ctx_range['future']
                         if future.done():
-                            if ctx_range['download_state'] == self.INPROCESS:
+                            if ctx_range['download_state'] not in self._COMPLETED:
                                 try:
                                     exception = future.exception()
                                     if exception is None:
@@ -1358,7 +1367,8 @@ class BDownloader(object):
                         ctx_file['download_state'] = self.SUCCEEDED
                         self.succeeded_downloads_in_running.append(ctx_file['orig_path_url'])
                     else:
-                        ctx_file['download_state'] = self.FAILED
+                        ctx_file['download_state'] = \
+                            self.FAILED if ctx_file['download_state'] != self.PENDING else self.CANCELLED
                         self.failed_downloads_in_running.append(ctx_file['orig_path_url'])
 
     def _mgmnt_task(self):
