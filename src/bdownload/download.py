@@ -495,6 +495,7 @@ class BDownloader(object):
                                     # updated on completion (FAILED, CANCELLED, or SUCCEEDED) of every task (`Future`)
                     "last_progress": 0,  # CONSTANT: the loaded progress of last run upon resuming from interruption
                     "resumable": True,
+                    "resuming_from_intr": False,  # Are we resuming from keyboard interruption?
                     "download_state": "inprocess",
                     "cancelled_on_exception": False,
                     "futures": [future1, future2],
@@ -1170,9 +1171,9 @@ class BDownloader(object):
             file_path = path_head
 
         urls = url.split('\t')  # maybe TAB-separated URLs
-        ctx_file = {'length': 0, 'progress': 0, 'last_progress': 0, 'resumable': False, 'download_state': self.PENDING,
-                    'cancelled_on_exception': False, 'futures': [], 'tsk_num': 0, 'orig_path_url': orig_path_url,
-                    'urls': {}, 'ranges': {}}
+        ctx_file = {'length': 0, 'progress': 0, 'last_progress': 0, 'resumable': False, 'resuming_from_intr': False,
+                    'download_state': self.PENDING, 'cancelled_on_exception': False, 'futures': [], 'tsk_num': 0,
+                    'orig_path_url': orig_path_url, 'urls': {}, 'ranges': {}}
 
         active_urls = []
         downloadable = False  # Must have at least one active URL to download the file
@@ -1358,7 +1359,27 @@ class BDownloader(object):
         return all(ctx_file['download_state'] in self._COMPLETED for ctx_file in self._dl_ctx['files'].values())
 
     def _backup_resumption_ctx(self, the_file, ctx_file):
-        pass
+        ctx = {
+            'file_name': os.path.basename(the_file),
+            'path_url': ctx_file['orig_path_url'],
+            'length': ctx_file['length'],
+            'progress': ctx_file['progress'],  # successfully downloaded bytes in this run
+            'failed_ranges': {}  # ranges with a state in `_RANGE_STATES` except `SUCCEEDED`
+        }
+
+        for req_range, ctx_range in ctx_file['ranges']:
+            if ctx_range['download_state'] != self.SUCCEEDED:
+                crange = ctx['failed_ranges'][req_range] = {}
+                crange.update({
+                    'start': ctx_range['start'],
+                    'end': ctx_range['end'],
+                    'offset': ctx_range['offset'],
+                    'start_time': 0,
+                    'rt_dl_speed': 0,
+                    'download_state': self.PENDING
+                })
+
+        return ctx
 
     def _on_succeeded(self, the_file, ctx_file):
         file_inprocess = the_file + self.INPROCESS_EXT
@@ -1371,6 +1392,8 @@ class BDownloader(object):
             # delete the download progress file (i.e. `*.bdl.par` for resumption parts info) if present
             if os.path.exists(file_resumption) and os.path.isfile(file_resumption):
                 os.remove(file_resumption)
+
+            self._logger.info("The download of the file '%s' has succeeded: '%r'", the_file, ctx_file['orig_path_url'])
         except EnvironmentError as e:
             self._logger.error("Error while operating on '%s': 'Error number %d: %s'", e.filename, e.errno, e.strerror)
 
@@ -1383,24 +1406,41 @@ class BDownloader(object):
                 with open(file_resumption, "wb") as fd:
                     pickle.dump(self._backup_resumption_ctx(the_file, ctx_file), fd, pickle.HIGHEST_PROTOCOL)
 
-                self._logger.warning("The download of the file '%s' has failed, but can be resumed by re-running it",
-                                     the_file)
+                self._logger.warning("The download of the file '%s' has failed, but can be resumed by re-running it: "
+                                     "'%r'", the_file, ctx_file['orig_path_url'])
             else:
                 os.remove(file_inprocess)
                 # delete the download progress file (i.e. `*.bdl.par` for resumption parts info) if present
                 if os.path.exists(file_resumption) and os.path.isfile(file_resumption):
                     os.remove(file_resumption)
 
-                self._logger.warning("The download of the file '%s' has failed, and can't be resumed either because the "
-                                     "resumption feature is intentionally disabled or because the URLs don't support this."
-                                     " Accordingly, the broken file '%s' has been removed", the_file, file_inprocess)
+                self._logger.warning("The download of the file '%s' has failed, and can't be resumed either because "
+                                     "the resumption feature is intentionally disabled or because the URLs don't "
+                                     "support this; Accordingly, the broken file(s) has been removed: '%r'", the_file,
+                                     ctx_file['orig_path_url'])
         except EnvironmentError as e:
             self._logger.error("Error while operating on '%s': 'Error number %d: %s'", e.filename, e.errno, e.strerror)
         except pickle.PicklingError as e:
-            self._logger.error("Error while dumping the resumption context into '%s'", file_resumption)
+            self._logger.error("Error while dumping the resumption context into '%s': '%r'", file_resumption, e)
 
     def _on_cancelled(self, the_file, ctx_file):
-        pass
+        file_inprocess = the_file + self.INPROCESS_EXT
+        file_resumption = the_file + self.RESUM_PARTS_EXT
+
+        try:
+            if not ctx_file['resuming_from_intr']:
+                os.remove(file_inprocess)
+                # delete the download progress file (i.e. `*.bdl.par` for resumption parts info) if present
+                if os.path.exists(file_resumption) and os.path.isfile(file_resumption):
+                    os.remove(file_resumption)
+
+                self._logger.info("The download of the file '%s' has been cancelled on demand, and the broken file(s) "
+                                  "have been removed accordingly: '%r'", the_file, ctx_file['orig_path_url'])
+            else:
+                self._logger.warning("The download of the file '%s' has been cancelled on demand, but can be resumed "
+                                     "by re-running it: '%r'", the_file, ctx_file['orig_path_url'])
+        except EnvironmentError as e:
+            self._logger.error("Error while operating on '%s': 'Error number %d: %s'", e.filename, e.errno, e.strerror)
 
     def _state_mgmnt(self):
         """Perform the state-related operations of file downloading.
