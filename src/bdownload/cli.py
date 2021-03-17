@@ -274,7 +274,8 @@ def main():
     except Exception as e:
         print(repr(e))
         exit_code = -1
-    except KeyboardInterrupt:
+    except KeyboardInterrupt as e:
+        print(repr(e))
         exit_code = -1
 
     if succeeded:

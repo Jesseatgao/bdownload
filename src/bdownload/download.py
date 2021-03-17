@@ -491,8 +491,8 @@ class BDownloader(object):
             "files":{
                 "full_path_to_file1":{
                     "length": 2000,  # 0 means 'unknown', i.e. file size can't be pre-determined through any one of provided URLs
-                    "progress": 0,  # downloaded bytes: initialized to 0, set to the last progress when resuming and
-                                    # updated on completion (FAILED, CANCELLED, or SUCCEEDED) of every task (`Future`)
+                    "progress": 0,  # `SUCCEEDED` downloaded bytes: initialized to 0, set to the last progress when
+                                    # resuming and updated on completion (SUCCEEDED only!) of every task (`Future`)
                     "last_progress": 0,  # CONSTANT: the loaded progress of last run upon resuming from interruption
                     "resumable": True,
                     "resuming_from_intr": False,  # Are we resuming from keyboard interruption?
@@ -1140,6 +1140,33 @@ class BDownloader(object):
                 n += 1
                 continue
 
+    def _load_resumption_ctx(self, the_file, ctx_file):
+        is_resuming, resumption_ctx = False, None
+        if self.continuation:
+            file_inprocess = the_file + self.INPROCESS_EXT
+            file_resumption = the_file + self.RESUM_PARTS_EXT
+
+            if os.path.isfile(file_inprocess) and os.path.isfile(file_resumption):
+                try:
+                    with open(file_resumption, "rb") as f:
+                        resumption_ctx = pickle.load(f)
+
+                    is_resuming = True
+                    # verify that the loaded and newly obtained sizes match
+                    last_len, cur_len = resumption_ctx['length'], ctx_file['length']
+                    if last_len and cur_len and last_len != cur_len:  # This should not usually happen
+                        is_resuming = False
+                        self._logger.warning("The resumption of the download from interruption couldn't be accomplished"
+                                             " due to the inconsistent file lengths, yet download will continue right "
+                                             "from the start of the file: (new: '%r' -- old: '%r')",
+                                             ctx_file['orig_path_url'], resumption_ctx['path_url'])
+                        self._rename_existing_file(file_inprocess)
+                        self._rename_existing_file(file_resumption)
+                except Exception as e:
+                    self._logger.error("Error while loading the resumption parts info from '%s': '%s'", file_resumption, e)
+
+        return is_resuming, resumption_ctx
+
     def _build_ctx_internal(self, path_name, url):
         """The helper method that actually does the build of the downloading context of the file.
 
@@ -1164,22 +1191,22 @@ class BDownloader(object):
         # If it is a directory, then a file name should be determined through the `url`.
         path_head, path_tail = os.path.split(path_name)
         if not path_tail or os.path.isdir(path_name):
-            file_name = None
+            file_name = ''
             file_path = path_name
         else:
             file_name = path_tail
             file_path = path_head
 
-        urls = url.split('\t')  # maybe TAB-separated URLs
+        orig_urls = url.split('\t')  # maybe TAB-separated URLs
         ctx_file = {'length': 0, 'progress': 0, 'last_progress': 0, 'resumable': False, 'resuming_from_intr': False,
                     'download_state': self.PENDING, 'cancelled_on_exception': False, 'futures': [], 'tsk_num': 0,
                     'orig_path_url': orig_path_url, 'urls': {}, 'ranges': {}}
 
         active_urls = []
         downloadable = False  # Must have at least one active URL to download the file
-        for _, url in enumerate(urls):
+        for mirror_url in orig_urls:
             try:
-                r = self.requester.get(url, allow_redirects=True, stream=True)
+                r = self.requester.get(mirror_url, allow_redirects=True, stream=True)
                 if r.status_code == requests.codes.ok:
                     file_len = int(r.headers.get('Content-Length', 0))
                     if file_len:
@@ -1187,14 +1214,14 @@ class BDownloader(object):
                             ctx_file['length'] = file_len
                         else:
                             if file_len != ctx_file['length']:
-                                self._logger.error("Error: size of '%s' obtained from '%s' happened to mismatch with "
-                                                   "that from others, downloading will continue but the downloaded file"
-                                                   " may not be the intended one!", path_url[0], url)
+                                self._logger.error("Error: the size of the file '%s' obtained from '%s' happened to "
+                                                   "mismatch with that from others, download will continue but the "
+                                                   "downloaded file may not be the intended one", file_name, mirror_url)
 
                                 r.close()
                                 continue
 
-                    ctx_url = ctx_file['urls'][url] = {}
+                    ctx_url = ctx_file['urls'][mirror_url] = {}
                     ctx_url['accept_ranges'] = "none"
                     ctx_url['refcnt'] = 0
 
@@ -1209,15 +1236,15 @@ class BDownloader(object):
                             file_name = self._get_fname_from_hdr(content_disposition)
 
                     downloadable = True
-                    active_urls.append(url)
+                    active_urls.append(mirror_url)
                 else:
-                    self._logger.warning("Unexpected status code %d: trying to determine the size of '%s' using '%s'",
-                                         r.status_code, path_url[0], url)
+                    self._logger.warning("Unexpected status code %d: trying to determine the size of the file '%s' "
+                                         "using '%s'", r.status_code, file_name, mirror_url)
 
                 r.close()
             except requests.RequestException as e:
-                self._logger.error("Error while trying to determine the size of '%s' using '%s': '%r'",
-                                   path_url[0], url, e)
+                self._logger.error("Error while trying to determine the size of the file '%s' using '%s': '%r'",
+                                   file_name, mirror_url, e)
 
         if downloadable:
             if not file_name:
@@ -1237,32 +1264,29 @@ class BDownloader(object):
 
                 return False, path_url, orig_path_url
 
-            # Prepare the necessary directory structure and file template
-            file_inprocess = file_path_name + self.INPROCESS_EXT
-            top_missing_dir = self._topmost_missing_dir(file_path)
-            try:
-                if top_missing_dir:
-                    mkpath(file_path)
+            is_resuming, resumption_ctx = self._load_resumption_ctx(file_path_name, ctx_file)
+            ctx_file['resuming_from_intr'] = is_resuming
+            if not is_resuming:
+                # Prepare the necessary directory structure and file template
+                file_inprocess = file_path_name + self.INPROCESS_EXT
+                top_missing_dir = self._topmost_missing_dir(file_path)
+                try:
+                    if top_missing_dir:
+                        mkpath(file_path)
 
-                with open(file_inprocess, mode='w') as _:
-                    pass
-            except (EnvironmentError, DistutilsFileError) as e:
-                if isinstance(e, DistutilsFileError):
-                    msg = "Error while operating on '{}': '{!r}'; Try downloading: '{!r}'".format(file_inprocess,
-                                                                                                  e, orig_path_url)
-                else:
-                    msg = "Error while operating on '{}': 'Error number {}: {}'; " \
-                          "Try downloading: '{!r}'".format(file_inprocess, e.errno, e.strerror, orig_path_url)
-
-                self._logger.error(msg)
-
-                if top_missing_dir:
-                    try:
-                        remove_tree(top_missing_dir)
-                    except Exception:
+                    with open(file_inprocess, mode='w') as _:
                         pass
+                except (EnvironmentError, DistutilsFileError) as e:
+                    self._logger.error("Error while operating on '%s': '%s'; Try downloading: '%r'", file_inprocess, e,
+                                       orig_path_url)
 
-                return False, path_url, orig_path_url
+                    if top_missing_dir:
+                        try:
+                            remove_tree(top_missing_dir)
+                        except Exception:
+                            pass
+
+                    return False, path_url, orig_path_url
 
             # make the file visible to the world
             self._dl_ctx['files'][file_path_name] = ctx_file
@@ -1271,26 +1295,34 @@ class BDownloader(object):
             if not ctx_file['length']:
                 self._dl_ctx['accurate'] = False
 
-            # calculate request ranges
-            if self._is_parallel_downloadable(file_path_name) and self.max_workers > 1:
-                ranges = self.calc_req_ranges(ctx_file['length'], self.min_split_size, 0)
-            else:
-                ranges = [(0, None)]
-
-            ctx_file['tsk_num'] = len(ranges)  # How many tasks to complete the download job of the file
-
             iter_url = self._pick_file_url(file_path_name)
-            for start, end in ranges:
-                req_range = "bytes={}-{}".format(start, end)
-                ctx_range = ctx_file['ranges'][req_range] = {}
-                ctx_range.update({
-                    'start': start,
-                    'end': end,
-                    'offset': 0,
-                    'start_time': 0,
-                    'rt_dl_speed': 0,
-                    'download_state': self.PENDING,
-                    'url': next(iter_url)})
+
+            if not is_resuming:
+                # calculate request ranges
+                if self._is_parallel_downloadable(file_path_name) and self.max_workers > 1:
+                    ranges = self.calc_req_ranges(ctx_file['length'], self.min_split_size, 0)
+                else:
+                    ranges = [(0, None)]
+
+                ctx_file['tsk_num'] = len(ranges)  # How many tasks to complete the download job of the file
+                for start, end in ranges:
+                    req_range = "bytes={}-{}".format(start, end)
+                    ctx_range = ctx_file['ranges'][req_range] = {}
+                    ctx_range.update({
+                        'start': start,
+                        'end': end,
+                        'offset': 0,
+                        'start_time': 0,
+                        'rt_dl_speed': 0,
+                        'download_state': self.PENDING,
+                        'url': next(iter_url)})
+            else:
+                ctx_file['last_progress'] = resumption_ctx['progress']
+                ctx_file['ranges'] = resumption_ctx['failed_ranges']
+                ctx_file['tsk_num'] = len(ctx_file['ranges'])
+
+                for ctx_range in ctx_file['ranges'].values():
+                    ctx_range['url'] = next(iter_url)
 
             # set alternative URLs used to resume downloading from on error
             ctx_file['alt_urls_sorted'] = self._get_alt_urls(file_path_name)
@@ -1367,7 +1399,7 @@ class BDownloader(object):
             'failed_ranges': {}  # ranges with a state in `_RANGE_STATES` except `SUCCEEDED`
         }
 
-        for req_range, ctx_range in ctx_file['ranges']:
+        for req_range, ctx_range in ctx_file['ranges'].items():
             if ctx_range['download_state'] != self.SUCCEEDED:
                 crange = ctx['failed_ranges'][req_range] = {}
                 crange.update({
@@ -1442,6 +1474,13 @@ class BDownloader(object):
         except EnvironmentError as e:
             self._logger.error("Error while operating on '%s': 'Error number %d: %s'", e.filename, e.errno, e.strerror)
 
+    def _finalize_on_interrupted_py2(self):
+        for the_file, ctx_file in self._dl_ctx['files'].items():
+            if ctx_file['download_state'] == self.INPROCESS:
+                self._on_failed(the_file, ctx_file)
+            elif ctx_file['download_state'] == self.PENDING:
+                self._on_cancelled(the_file, ctx_file)
+
     def _state_mgmnt(self):
         """Perform the state-related operations of file downloading.
 
@@ -1471,12 +1510,11 @@ class BDownloader(object):
                         future = ctx_range['future']
                         if future.done():
                             if ctx_range['download_state'] not in self._COMPLETED:
-                                ctx_file['progress'] += ctx_range['offset']
-
                                 try:
                                     exception = future.exception()
                                     if exception is None:
                                         ctx_range['download_state'] = self.SUCCEEDED
+                                        ctx_file['progress'] += ctx_range['offset']
                                     else:  # exception raised
                                         ctx_range['download_state'] = self.FAILED
                                         future_aborted = True
@@ -1669,7 +1707,9 @@ class BDownloader(object):
                 succeeded, failed = self._result()
                 msg = 'The download was interrupted by the user: '\
                       '"succeeded in downloading: {!r}; failed to download: {!r}"'.format(succeeded, failed)
-                self._logger.warning(msg)
+                if not _py3plus:
+                    self._logger.warning(msg)
+
                 raise KeyboardInterrupt(msg)
 
         return self._result()
@@ -1700,6 +1740,8 @@ class BDownloader(object):
         if self.sigint and not _py3plus:
             timeout = self._PY2_SIGINT_JOIN_TIMEOUT
             shutdown = _os_exit_force  # non-gracefully shutdown on Python 2.x when interrupted
+
+            self._finalize_on_interrupted_py2()
 
             # flush stdio buffers before forcibly shutting down
             sys.stdout.flush()
