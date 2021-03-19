@@ -220,8 +220,8 @@ def _arg_parser():
 
     parser.add_argument('--user-agent', dest='user_agent', default=None, help='custom user agent')
 
-    parser.add_argument('-P', '--progress', dest='progress', default='mill', choices=['mill', 'bar'],
-                        help='progress indicator [default: mill]')
+    parser.add_argument('-P', '--progress', dest='progress', default='mill', choices=['mill', 'bar', 'none'],
+                        help='progress indicator. To disable this feature, use "none". [default: mill]')
 
     parser.add_argument('--num-pools', dest='num_pools', default=DEFAULT_NUM_POOLS, type=int,
                         help='number of connection pools [default: {}]'.format(DEFAULT_NUM_POOLS))
@@ -231,6 +231,12 @@ def _arg_parser():
 
     parser.add_argument('-l', '--log-level', dest='log_level', default='warning',
                         choices=['debug', 'info', 'warning', 'error', 'critical'], help='logger level [default: warning]')
+
+    grp = parser.add_mutually_exclusive_group()
+    grp.add_argument('-c', '--continue', dest='continuation', action='store_const', const=True,
+                     help='resume from the partially downloaded files. This is the default behavior')
+    grp.add_argument('--no-continue', dest='no_continue', action='store_const', const=True,
+                     help='do not resume from last interruption, i.e. start the download from beginning')
 
     return parser
 
@@ -257,6 +263,8 @@ def main():
     log_level = getattr(logging, args.log_level.upper())
     logging.basicConfig(level=log_level)
 
+    continuation = True if args.continuation else False if args.no_continue else True
+
     files = ['']*len(args.urls) if args.output is None else args.output+['']*(len(args.urls)-len(args.output))
     if len(files) > len(args.urls):
         print('The specified OUTPUTs and URLs don\'t align, extra OUTPUTs will be ignored: {!r}'.format(args.output[len(args.urls):]))
@@ -268,7 +276,7 @@ def main():
     try:
         with BDownloader(max_workers=args.max_workers, min_split_size=args.min_split_size, chunk_size=args.chunk_size,
                          proxy=args.proxy, cookies=args.cookie, user_agent=args.user_agent, progress=args.progress,
-                         num_pools=args.num_pools, pool_maxsize=args.pool_size) as downloader:
+                         num_pools=args.num_pools, pool_maxsize=args.pool_size, continuation=continuation) as downloader:
             downloader.downloads(path_urls)
             succeeded, failed = downloader.wait_for_all()
     except Exception as e:

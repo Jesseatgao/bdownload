@@ -596,7 +596,8 @@ class BDownloader(object):
                 it must be an object of class :class:`logging.Logger` or of its customized subclass.  Otherwise,
                 it will use a default module-level logger returned by ``logging.getLogger(__name__)``.
             progress (str): `progress` determines the style of the progress bar displayed while downloading files.
-                Possible values are ``'mill'`` and ``'bar'``, and ``'mill'`` is the default.
+                Possible values are ``'mill'``, ``'bar'`` and ``'none'``. ``'mill'`` is the default. To disable this
+                feature, e.g. while scripting, set it to ``'none'``.
             num_pools (int): The `num_pools` parameter has the same meaning as `num_pools` in ``urllib3.PoolManager``
                 and will eventually be passed to it. Specifically, `num_pools` specifies the number of connection pools
                 to cache.
@@ -688,7 +689,7 @@ class BDownloader(object):
         self.chunk_size = chunk_size
 
         self.progress = progress
-        if self.progress not in ('bar', 'mill'):
+        if self.progress not in ('bar', 'mill', 'none'):
             self._logger.error("Error: invalid ProgressBar parameter '%s', default to 'mill'", self.progress)
             self.progress = 'mill'
 
@@ -1637,7 +1638,7 @@ class BDownloader(object):
         for chunk_path_urls in self.list_split(path_urls, chunk_size=2):
             active, active_orig, _, failed_orig = self._build_ctx(chunk_path_urls)
             if active:
-                if self.progress_thread is None:
+                if self.progress != 'none' and self.progress_thread is None:
                     self.progress_thread = threading.Thread(target=self._progress_task)
                     self.progress_thread.start()
 
