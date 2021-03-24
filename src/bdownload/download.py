@@ -552,6 +552,13 @@ class BDownloader(object):
     _FILE_STATES = [PENDING, INPROCESS, FAILED, CANCELLED, SUCCEEDED]
     _RANGE_STATES = [PENDING, INPROCESS, FAILED, CANCELLED, SUCCEEDED]
 
+    # Progress bar styles
+    PROGRESS_BS_MILL = 'mill'
+    PROGRESS_BS_BAR = 'bar'
+    PROGRESS_BS_NONE = 'none'
+
+    _PROGRESS_BAR_STYLES = [PROGRESS_BS_MILL, PROGRESS_BS_BAR, PROGRESS_BS_NONE]
+
     # Default value for `max_workers`
     _MAX_WORKERS = (_cpu_count() or 1) * 5  # In line with `futures`
 
@@ -597,7 +604,7 @@ class BDownloader(object):
                 it will use a default module-level logger returned by ``logging.getLogger(__name__)``.
             progress (str): `progress` determines the style of the progress bar displayed while downloading files.
                 Possible values are ``'mill'``, ``'bar'`` and ``'none'``. ``'mill'`` is the default. To disable this
-                feature, e.g. while scripting, set it to ``'none'``.
+                feature, e.g. while scripting or multi-instanced, set it to ``'none'``.
             num_pools (int): The `num_pools` parameter has the same meaning as `num_pools` in ``urllib3.PoolManager``
                 and will eventually be passed to it. Specifically, `num_pools` specifies the number of connection pools
                 to cache.
@@ -689,9 +696,10 @@ class BDownloader(object):
         self.chunk_size = chunk_size
 
         self.progress = progress
-        if self.progress not in ('bar', 'mill', 'none'):
-            self._logger.error("Error: invalid ProgressBar parameter '%s', default to 'mill'", self.progress)
-            self.progress = 'mill'
+        if self.progress not in self._PROGRESS_BAR_STYLES:
+            self._logger.error("Error: invalid ProgressBar parameter '%s', default to '%s'",
+                               self.progress, self.PROGRESS_BS_MILL)
+            self.progress = self.PROGRESS_BS_MILL
 
         self.continuation = continuation
 
@@ -1598,7 +1606,7 @@ class BDownloader(object):
         total_size = self._dl_ctx['total_size']
 
         if self._dl_ctx['accurate']:
-            if self.progress == 'bar':
+            if self.progress == self.PROGRESS_BS_BAR:
                 accurate_progress_bar = progress.Bar(expected_size=total_size)
             else:
                 accurate_progress_bar = MillProgress(label='Downloaded/Expected:', expected_size=total_size, every=1024)
@@ -1634,11 +1642,21 @@ class BDownloader(object):
 
         Returns:
             None.
+
+        Notes:
+            The method is not thread-safe, which means it should not be called at the same time in multiple threads
+            with one instance.
+
+            When multi-instanced (e.g. one instance per thread), the file paths specified in one instance should not
+            overlap those in another to avoid potential race conditions. File loss may occur, for example, if a failed
+            download task in one instance tries to delete a directory that is being accessed by some download tasks in
+            other instances.
+            However, this limitation doesn't apply to the file paths specified in a same instance.
         """
         for chunk_path_urls in self.list_split(path_urls, chunk_size=2):
             active, active_orig, _, failed_orig = self._build_ctx(chunk_path_urls)
             if active:
-                if self.progress != 'none' and self.progress_thread is None:
+                if self.progress != self.PROGRESS_BS_NONE and self.progress_thread is None:
                     self.progress_thread = threading.Thread(target=self._progress_task)
                     self.progress_thread.start()
 
@@ -1663,6 +1681,9 @@ class BDownloader(object):
 
         Returns:
             None.
+
+        Notes:
+            The limitation on the method and the `path_name` parameter herein is the same as in :meth:`downloads`.
         """
         return self.downloads([(path_name, url)])
 

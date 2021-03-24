@@ -32,7 +32,7 @@ A multi-threaded and multi-source aria2-like batch file downloading library for 
 `
 class bdownload.BDownloader(max_workers=None, min_split_size=1024*1024, chunk_size=1024*100, proxy=None, cookies=None,
                             user_agent=None, logger=None, progress='mill', num_pools=20, pool_maxsize=20, request_timeout=None,
-                            request_retries=None, status_forcelist=None, resumption_retries=None)
+                            request_retries=None, status_forcelist=None, resumption_retries=None, continuation=True)
 `
 
     Create and initialize a `BDownloader` object for executing download jobs.
@@ -63,8 +63,9 @@ class bdownload.BDownloader(max_workers=None, min_split_size=1024*1024, chunk_si
     `logging.Logger` or of its customized subclass.  Otherwise, it will use a default module-level logger returned by 
     `logging.getLogger(__name__)`.
   
-  * `progress` determines the style of the progress bar displayed while downloading files. Possible values are `'mill'` 
-    and `'bar'`, and `'mill'` is the default.
+  * `progress` determines the style of the progress bar displayed while downloading files. Possible values are `'mill'`,
+    `'bar'` and `'none''`. `'mill'` is the default. To disable this feature, e.g. while scripting or multi-instanced, 
+    set it to `'none'`.
   
   * The `num_pools` parameter has the same meaning as `num_pools` in `urllib3.PoolManager` and will eventually be passed
     to it. Specifically, `num_pools` specifies the number of connection pools to cache.
@@ -93,6 +94,9 @@ class bdownload.BDownloader(max_workers=None, min_split_size=1024*1024, chunk_si
   * The `resumption_retries` parameter specifies the maximum allowable number of retries on error at resuming the interrupted
     download while streaming the request content. The default value of it is `download.REQUESTS_RETRIES_ON_STREAM_EXCEPTION` 
     when not provided.
+    
+  * The `continuation` parameter specifies whether, if possible, to resume the partially downloaded files before, e.g. 
+    when the downloads had been terminated by the user by pressing `Ctrl-C`. When not present, it will default to `True`.
 
 `
 BDownloader.downloads(path_urls)
@@ -106,6 +110,15 @@ BDownloader.downloads(path_urls)
     ('_./sanguoshuowen.pdf_', '_https://bar.cc/sanguoshuowen.pdf\thttps://foo.cc/sanguoshuowen.pdf_'), 
     ('_/**to**/**be**/created/_', '_https://flash.jiefang.rmy/lc-cl/gaozhuang/chelsia/rockspeaker.tar.gz_'), ('_/path/to/**existing**-dir_',
     '_https://ghosthat.bar/foo/puretonecone81.xz\thttps://tpot.horn/foo/puretonecone81.xz\thttps://hawkhill.bar/foo/puretonecone81.xz_')].
+    
+  > :warning:
+  > The method is not thread-safe, which means it should not be called at the same time in multiple threads
+  > with one instance.
+  >
+  > When multi-instanced (e.g. one instance per thread), the file paths specified in one instance should not overlap 
+  > those in another to avoid potential race conditions. File loss may occur, for example, if a failed download task 
+  > in one instance tries to delete a directory that is being accessed by some download tasks in other instances.
+  > However, this limitation doesn't apply to the file paths specified in a same instance.
 
 `
 BDownloader.download(path, url)
@@ -115,6 +128,9 @@ BDownloader.download(path, url)
   
   * Similar to `BDownloader.downloads()`, in fact it is just a special case of which, with [(`path`, `url`)] composed of
     the specified parameters as the input.
+    
+  > :warning:
+  > The limitation on the method and the `path_name` parameter herein is the same as in `BDownloader.downloads()`.
 
 `
 BDownloader.wait_for_all()
@@ -250,9 +266,10 @@ if __name__ == '__main__':
 bdownload [-h] [-o OUTPUT [OUTPUT ...]] [-D DIR] -L URLS [URLS ...]
                [-p PROXY] [-n MAX_WORKERS] [-k MIN_SPLIT_SIZE]
                [-s CHUNK_SIZE] [-e COOKIE] [--user-agent USER_AGENT]
-               [-P {mill,bar}] [--num-pools NUM_POOLS]
+               [-P {mill,bar,none}] [--num-pools NUM_POOLS]
                [--pool-size POOL_SIZE]
                [-l {debug,info,warning,error,critical}]
+               [-c | --no-continue]
 ```
 
 #### Description
@@ -302,9 +319,9 @@ bdownload [-h] [-o OUTPUT [OUTPUT ...]] [-D DIR] -L URLS [URLS ...]
 
     custom user agent
 
-`-P {mill,bar}, --progress {mill,bar}`
+`-P {mill,bar,none}, --progress {mill,bar,none}`
 
-    progress indicator [default: mill]
+    progress indicator. To disable this feature, use `none`. [default: mill]
 
 `--num-pools NUM_POOLS`
 
@@ -317,6 +334,14 @@ bdownload [-h] [-o OUTPUT [OUTPUT ...]] [-D DIR] -L URLS [URLS ...]
 `-l {debug,info,warning,error,critical}, --log-level {debug,info,warning,error,critical}`
 
     logger level [default: warning]
+
+`-c, --continue`
+
+    resume from the partially downloaded files. This is the default behavior
+
+`--no-continue`
+
+    do not resume from last interruption, i.e. start the download from beginning
 
 ### Donation
     If you like the project, please support it by donation
