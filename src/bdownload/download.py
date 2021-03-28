@@ -687,6 +687,8 @@ class BDownloader(object):
         self.failed_downloads_in_running = []
         # list: The succeeded downloads, being a subset of :attr:`BDownloader.active_downloads_added`.
         self.succeeded_downloads_in_running = []
+        # list: The downloads whose desired files already exist out there, without the need to re-download.
+        self.succeeded_downloads_on_addition = []
 
         if logger is None:
             logger = logging.getLogger(__name__)
@@ -1126,10 +1128,10 @@ class BDownloader(object):
         return last_missing
 
     def _rename_existing_file(self, full_pathname):
-        """
+        """Rename the file or directory with the given pathname if present.
 
         Args:
-            full_pathname (str): The full path name of the file
+            full_pathname (str): The full path name of the file to check for duplicate.
         """
         if not os.path.exists(full_pathname):
             return
@@ -1150,6 +1152,17 @@ class BDownloader(object):
                 continue
 
     def _load_resumption_ctx(self, the_file, ctx_file):
+        """Load from the resumption parts file to restore the download context.
+
+        Args:
+            the_file (str): The full path name of the file to download.
+            ctx_file (dict): The download context of the file `the_file`.
+
+        Returns:
+            (bool, dict): A 2-tuple ``(is_resuming, resumption_ctx)``, where ``is_resuming`` indicates whether the
+            download is resuming from last interruption, and if this is the case (``True``), ``resumption_ctx`` holds
+            the successfully loaded resumption context.
+        """
         is_resuming, resumption_ctx = False, None
         if self.continuation:
             file_inprocess = the_file + self.INPROCESS_EXT
@@ -1180,14 +1193,14 @@ class BDownloader(object):
         """The helper method that actually does the build of the downloading context of the file.
 
         Args:
-            path_name (str): The full path name of the file to be downloaded.
+            path_name (str): The full path name of the file to download.
             url (str): The URL referencing the target file.
 
         Returns:
             tuple: A 3-tuple ``'(downloadable, (path, url), (orig_path, orig_url))'``, where the ``downloadable``
-            indicates whether or not (``True`` or ``False``) there is at least one active URL to download the file,
-            ``(path, url)`` denotes the converted full pathname and the URL that consists only of active URLs, and
-            ``(orig_path, orig_url)`` denotes the originally input pathname and URL.
+            indicates whether the desired file is downloadable, unavailable or existing by ``True``, ``False`` or
+            ``None`` respectively, ``(path, url)`` denotes the converted full pathname and the URL that consists
+            only of active URLs, and ``(orig_path, orig_url)`` denotes the originally input pathname and URL.
         """
         path_url, orig_path_url = (path_name, url), (path_name, url)  # original `(path, url)`
 
@@ -1275,6 +1288,20 @@ class BDownloader(object):
 
             is_resuming, resumption_ctx = self._load_resumption_ctx(file_path_name, ctx_file)
             ctx_file['resuming_from_intr'] = is_resuming
+
+            # check whether the desired file already exists or not
+            if self.continuation and not is_resuming and os.path.isfile(file_path_name):
+                file_len = os.stat(file_path_name).st_size
+                if ctx_file['length'] and file_len == ctx_file['length']:
+                    self._logger.warning("The desired file '%s' already exists out there, so that there is no need to "
+                                         "re-download it: '%r'", file_path_name, ctx_file['orig_path_url'])
+
+                    return None, path_url, orig_path_url
+                else:
+                    self._logger.warning("A file with the desired name '%s' has been detected, but its size cannot be "
+                                         "validated, so the download will start anew, and the existing file will be "
+                                         "renamed on completion: '%r'", file_path_name, ctx_file['orig_path_url'])
+
             if not is_resuming:
                 # Prepare the necessary directory structure and file template
                 file_inprocess = file_path_name + self.INPROCESS_EXT
@@ -1342,25 +1369,30 @@ class BDownloader(object):
         """Build the context for downloading the file(s).
 
         Args:
-            path_urls (list of tuple): Paths and URLs for the file(s) to be downloaded, see :meth:`downloads` for details.
+            path_urls (list of tuple): Paths and URLs for the file(s) to download, see :meth:`downloads` for details.
 
         Returns:
-            A 4-tuple of lists ``'(active, active_orig, failed, failed_orig)'``, where the :obj:`list`\ s ``active`` and
-            ``active_orig`` contain the active ``(path, url)``'s, converted and original respectively; ``failed`` and
-            ``failed_orig`` contain the same ``(path, url)``'s that are not downloadable.
+            A 6-tuple of lists ``'(active, active_orig, failed, failed_orig, existing, existing_orig)'``, where the
+            :obj:`list`\ s ``active`` and ``active_orig`` contain the active ``(path, url)``'s, converted and original
+            respectively; ``failed`` and ``failed_orig`` contain the same ``(path, url)``'s that are not downloadable;
+            ``existing`` and ``existing_orig`` contain the downloads whose desired files already exist out there.
         """
         active, active_orig = [], []
         failed, failed_orig = [], []
+        existing, existing_orig = [], []
         for path_name, url in path_urls:
             downloadable, path_url, orig_path_url = self._build_ctx_internal(path_name, url)
             if downloadable:
                 active.append(path_url)
                 active_orig.append(orig_path_url)
+            elif downloadable is None:
+                existing.append(path_url)
+                existing_orig.append(orig_path_url)
             else:
                 failed.append(path_url)
                 failed_orig.append(orig_path_url)
 
-        return active, active_orig, failed, failed_orig
+        return active, active_orig, failed, failed_orig, existing, existing_orig
 
     def _submit_dl_tasks(self, path_urls):
         """Submit the download tasks of the files to the thread pool.
@@ -1400,6 +1432,15 @@ class BDownloader(object):
         return all(ctx_file['download_state'] in self._COMPLETED for ctx_file in self._dl_ctx['files'].values())
 
     def _backup_resumption_ctx(self, the_file, ctx_file):
+        """Back up the necessary context of the unsuccessful download for resuming later.
+
+        Args:
+            the_file (str): The full path name of the file being downloaded.
+            ctx_file (dict): The download context of the file `the_file`.
+
+        Returns:
+            dict: The resumption context for the file `the_file`.
+        """
         ctx = {
             'file_name': os.path.basename(the_file),
             'path_url': ctx_file['orig_path_url'],
@@ -1423,6 +1464,7 @@ class BDownloader(object):
         return ctx
 
     def _on_succeeded(self, the_file, ctx_file):
+        """When transitioning to the `SUCCEEDED` state, convert from in-process to finished file and do the cleanup."""
         file_inprocess = the_file + self.INPROCESS_EXT
         file_resumption = the_file + self.RESUM_PARTS_EXT
 
@@ -1431,7 +1473,7 @@ class BDownloader(object):
             os.rename(file_inprocess, the_file)
 
             # delete the download progress file (i.e. `*.bdl.par` for resumption parts info) if present
-            if os.path.exists(file_resumption) and os.path.isfile(file_resumption):
+            if os.path.isfile(file_resumption):
                 os.remove(file_resumption)
 
             self._logger.info("The download of the file '%s' has succeeded: '%r'", the_file, ctx_file['orig_path_url'])
@@ -1439,6 +1481,7 @@ class BDownloader(object):
             self._logger.error("Error while operating on '%s': 'Error number %d: %s'", e.filename, e.errno, e.strerror)
 
     def _on_failed(self, the_file, ctx_file):
+        """When transitioning to the `FAILED` state, save the resumption ctx or remove the intermediate files."""
         file_inprocess = the_file + self.INPROCESS_EXT
         file_resumption = the_file + self.RESUM_PARTS_EXT
 
@@ -1452,7 +1495,7 @@ class BDownloader(object):
             else:
                 os.remove(file_inprocess)
                 # delete the download progress file (i.e. `*.bdl.par` for resumption parts info) if present
-                if os.path.exists(file_resumption) and os.path.isfile(file_resumption):
+                if os.path.isfile(file_resumption):
                     os.remove(file_resumption)
 
                 self._logger.warning("The download of the file '%s' has failed, and can't be resumed either because "
@@ -1465,6 +1508,7 @@ class BDownloader(object):
             self._logger.error("Error while dumping the resumption context into '%s': '%r'", file_resumption, e)
 
     def _on_cancelled(self, the_file, ctx_file):
+        """When transitioning to the `CANCELLED` state, remove the empty, obsolete files."""
         file_inprocess = the_file + self.INPROCESS_EXT
         file_resumption = the_file + self.RESUM_PARTS_EXT
 
@@ -1472,7 +1516,7 @@ class BDownloader(object):
             if not ctx_file['resuming_from_intr']:
                 os.remove(file_inprocess)
                 # delete the download progress file (i.e. `*.bdl.par` for resumption parts info) if present
-                if os.path.exists(file_resumption) and os.path.isfile(file_resumption):
+                if os.path.isfile(file_resumption):
                     os.remove(file_resumption)
 
                 self._logger.info("The download of the file '%s' has been cancelled on demand, and the broken file(s) "
@@ -1484,6 +1528,7 @@ class BDownloader(object):
             self._logger.error("Error while operating on '%s': 'Error number %d: %s'", e.filename, e.errno, e.strerror)
 
     def _finalize_on_interrupted_py2(self):
+        """When interrupted under Python2.x, perform state transitions manually and act accordingly."""
         for the_file, ctx_file in self._dl_ctx['files'].items():
             if ctx_file['download_state'] == self.INPROCESS:
                 self._on_failed(the_file, ctx_file)
@@ -1654,7 +1699,7 @@ class BDownloader(object):
             However, this limitation doesn't apply to the file paths specified in a same instance.
         """
         for chunk_path_urls in self.list_split(path_urls, chunk_size=2):
-            active, active_orig, _, failed_orig = self._build_ctx(chunk_path_urls)
+            active, active_orig, _, failed_orig, _, existing_orig = self._build_ctx(chunk_path_urls)
             if active:
                 if self.progress != self.PROGRESS_BS_NONE and self.progress_thread is None:
                     self.progress_thread = threading.Thread(target=self._progress_task)
@@ -1666,6 +1711,9 @@ class BDownloader(object):
 
                 self._submit_dl_tasks(active)
                 self.active_downloads_added.extend(active_orig)
+
+            if existing_orig:
+                self.succeeded_downloads_on_addition.extend(existing_orig)
 
             if failed_orig:
                 self.failed_downloads_on_addition.extend(failed_orig)
@@ -1693,7 +1741,7 @@ class BDownloader(object):
         Returns:
             tuple of list: Same as that returned by :meth:`wait_for_all`.
         """
-        succeeded = self.succeeded_downloads_in_running
+        succeeded = self.succeeded_downloads_in_running + self.succeeded_downloads_on_addition
 
         # `failed_downloads_in_running` may not equal `self.failed_downloads_in_running`, e.g. when interrupted on Py2.x
         # Furthermore, it may not be the case as its name suggested for the same reason

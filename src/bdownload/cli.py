@@ -283,7 +283,7 @@ def main():
         print(repr(e))
         exit_code = -1
     except KeyboardInterrupt as e:
-        print(repr(e))
+        print(str(e))
         exit_code = -1
 
     if succeeded:
