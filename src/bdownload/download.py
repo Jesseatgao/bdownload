@@ -1765,8 +1765,7 @@ class BDownloader(object):
         if self.active_downloads_added:
             try:
                 while not self.all_done:
-                    timeout = self._INTERRUPTIBLE_WAIT_TIMEOUT if not self.sigquit else None
-                    self.all_done_event.wait(timeout)
+                    self.all_done_event.wait(self._INTERRUPTIBLE_WAIT_TIMEOUT)
             except KeyboardInterrupt:  # caught when run in the main thread
                 self.sigint = True
 
