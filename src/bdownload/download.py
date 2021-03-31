@@ -93,6 +93,9 @@ Notes:
     Don't mix these two retry mechanisms up with the retries at failed connections while streaming the request content.
 """
 
+#: int: The highest pickle protocol number valid for both Python 2.x and Python 3.x.
+PICKLE_PROTOCOL_NUMBER = 2
+
 
 def _cpu_count():
     """A simple wrapper around the ``cpu_count()`` for escaping the `NotImplementedError`.
@@ -770,7 +773,7 @@ class BDownloader(object):
         """
         return True if self._dl_ctx['files'][path_name]['resumable'] else False
 
-    def _raise_on_interrupt(self):
+    def _raise_on_interrupted(self):
         """Raise a customized exception signaling that the downloads have been terminated by the user.
 
         Raises:
@@ -828,7 +831,7 @@ class BDownloader(object):
                                         fd.write(chunk)
                                         ctx_range['offset'] += len(chunk)
 
-                                        self._raise_on_interrupt()
+                                        self._raise_on_interrupted()
                                 except requests.RequestException as e:
                                     self._logger.error("Error while downloading '%s'(range:%d-%d/%d-%d): '%r'",
                                                        os.path.basename(path_name), start, end, ctx_range['start'],
@@ -929,7 +932,7 @@ class BDownloader(object):
                                     if headers:
                                         range_start = ctx_range['start'] + ctx_range['offset']
 
-                                    self._raise_on_interrupt()
+                                    self._raise_on_interrupted()
 
                                 break
                             except requests.RequestException as e:
@@ -1488,7 +1491,7 @@ class BDownloader(object):
         try:
             if self.continuation and ctx_file['resumable']:
                 with open(file_resumption, "wb") as fd:
-                    pickle.dump(self._backup_resumption_ctx(the_file, ctx_file), fd, pickle.HIGHEST_PROTOCOL)
+                    pickle.dump(self._backup_resumption_ctx(the_file, ctx_file), fd, PICKLE_PROTOCOL_NUMBER)
 
                 self._logger.warning("The download of the file '%s' has failed, but can be resumed by re-running it: "
                                      "'%r'", the_file, ctx_file['orig_path_url'])
@@ -1527,6 +1530,16 @@ class BDownloader(object):
         except EnvironmentError as e:
             self._logger.error("Error while operating on '%s': 'Error number %d: %s'", e.filename, e.errno, e.strerror)
 
+    def _cancel_all_on_interrupted(self):
+        """Cancel all the downloading tasks when receiving the ``SIGINT`` signal or the QUIT command."""
+        if not self.cancelled_on_interrupt:
+            for f in self._dl_ctx['futures']:
+                f.cancel()
+
+            self.cancelled_on_interrupt = True
+            self._logger.warning("The user terminated the downloads %s!",
+                                 "by pressing the interrupt key" if self.sigint else "by typing the QUIT command")
+
     def _finalize_on_interrupted_py2(self):
         """When interrupted under Python2.x, perform state transitions manually and act accordingly."""
         for the_file, ctx_file in self._dl_ctx['files'].items():
@@ -1545,11 +1558,8 @@ class BDownloader(object):
             None.
         """
         # Cancel the downloading tasks repeatedly on the downloading queue when interrupted
-        if (self.sigint or self.sigquit) and (not self.cancelled_on_interrupt):
-            for f in self._dl_ctx['futures']:
-                f.cancel()
-
-            self.cancelled_on_interrupt = True
+        if self.sigint or self.sigquit:
+            self._cancel_all_on_interrupted()
 
         for ctx_file in self._dl_ctx['files'].values():
             if ctx_file['download_state'] not in self._COMPLETED:
@@ -1750,6 +1760,21 @@ class BDownloader(object):
 
         return succeeded, failed
 
+    def _wait_py3(self):
+        """Wait for all the jobs done on Python 3.x and newer"""
+        while not self.all_done:
+            self.all_done_event.wait()
+
+    def _wait_py2(self):
+        """Wait for all the jobs done on Python 2.x"""
+        while not self.all_done:
+            if not self.sigint:
+                self.all_done_event.wait(self._INTERRUPTIBLE_WAIT_TIMEOUT)
+            else:
+                # https://github.com/agronholm/pythonfutures/issues/25
+                self.all_done_event.wait(self._PY2_SIGINT_WAIT_TIMEOUT)
+                break
+
     def wait_for_all(self):
         """Wait for all the downloading jobs to complete.
 
@@ -1757,31 +1782,18 @@ class BDownloader(object):
             tuple of list: A 2-tuple of lists ``'(succeeded, failed)'``. The first list ``succeeded`` contains the
             originally passed ``(path, url)``\ s that finished successfully, while the second list ``failed`` contains
             the raised and cancelled ones.
-
-        Raises:
-            KeyboardInterrupt: Re-raised the caught exception when run in the main thread
         """
         self.all_submitted = True
         if self.active_downloads_added:
-            try:
-                while not self.all_done:
-                    self.all_done_event.wait(self._INTERRUPTIBLE_WAIT_TIMEOUT)
-            except KeyboardInterrupt:  # caught when run in the main thread
-                self.sigint = True
+            wait4all = self._wait_py3 if _py3plus else self._wait_py2
+            wait4all()
 
-                # https://github.com/agronholm/pythonfutures/issues/25
-                timeout = None if _py3plus else self._PY2_SIGINT_WAIT_TIMEOUT
-                self.all_done_event.wait(timeout)
+        succeeded, failed = self._result()
+        if self.sigint and not _py3plus:
+            self._logger.warning('The download was interrupted by the user: '
+                                 '"succeeded in downloading: %r; failed to download: %r"', succeeded, failed)
 
-                succeeded, failed = self._result()
-                msg = 'The download was interrupted by the user: '\
-                      '"succeeded in downloading: {!r}; failed to download: {!r}"'.format(succeeded, failed)
-                if not _py3plus:
-                    self._logger.warning(msg)
-
-                raise KeyboardInterrupt(msg)
-
-        return self._result()
+        return succeeded, failed
 
     def cancel(self, keyboard_interrupt=True):
         """Cancel all the download jobs.

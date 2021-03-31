@@ -13,6 +13,8 @@ from os.path import join, abspath, isfile
 import re
 from codecs import encode, decode
 import logging
+from functools import partial
+import signal
 
 from requests.cookies import cookielib
 
@@ -241,6 +243,17 @@ def _arg_parser():
     return parser
 
 
+def sigint_handler(bdownloader, signum, frame):
+    """The handler for the signal ``SIGINT``.
+
+    Args:
+        bdownloader (BDownloader): The :obj:`BDownloader` instance acting as the file downloader.
+        signum: The signal number :obj:`signal.SIGINT`.
+        frame: The current stack frame when the signal ``SIGINT`` is received.
+    """
+    bdownloader.cancel(keyboard_interrupt=True)
+
+
 def main():
     """Collect the command-line arguments from ``sys.argv``, parse and do the downloading as specified.
     """
@@ -277,6 +290,7 @@ def main():
         with BDownloader(max_workers=args.max_workers, min_split_size=args.min_split_size, chunk_size=args.chunk_size,
                          proxy=args.proxy, cookies=args.cookie, user_agent=args.user_agent, progress=args.progress,
                          num_pools=args.num_pools, pool_maxsize=args.pool_size, continuation=continuation) as downloader:
+            signal.signal(signal.SIGINT, partial(sigint_handler, downloader))
             downloader.downloads(path_urls)
             succeeded, failed = downloader.wait_for_all()
     except Exception as e:
