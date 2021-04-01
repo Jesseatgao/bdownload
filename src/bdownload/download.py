@@ -674,7 +674,7 @@ class BDownloader(object):
         # Flag indicating that **all** the download tasks have been submitted, i.e. no more downloads to be added
         self.all_submitted = False
         self.sigint = False  # Received the SIGINT (i.e. `KeyboardInterrupt`) signal, e.g. raised by hitting `Ctrl-C`?
-        self.sigquit = False  # Received the QUIT command, e.g. triggered by pressing `q`?
+        self.cmdquit = False  # Received the QUIT command, e.g. triggered by pressing `q`?
         # Flag indicating that cancellation of all the tasks have been done on demand, e.g. by pressing `Ctrl-C` or `q`
         self.cancelled_on_interrupt = False
         self.stop = False  # Flag signaling waiting threads to exit
@@ -779,7 +779,7 @@ class BDownloader(object):
         Raises:
             :class:`BDownloaderException`: Raised when the termination or cancellation flag has been set.
         """
-        if self.sigint or self.sigquit:
+        if self.sigint or self.cmdquit:
             raise BDownloaderException("The download was intentionally interrupted by the user!")
 
     def _get_remote_file_multipart(self, path_name, req_range):
@@ -1558,7 +1558,7 @@ class BDownloader(object):
             None.
         """
         # Cancel the downloading tasks repeatedly on the downloading queue when interrupted
-        if self.sigint or self.sigquit:
+        if self.sigint or self.cmdquit:
             self._cancel_all_on_interrupted()
 
         for ctx_file in self._dl_ctx['files'].values():
@@ -1677,7 +1677,7 @@ class BDownloader(object):
             time.sleep(0.1)
         else:
             progress_bar.last_progress = self._dl_ctx['total_size'] \
-                if self._dl_ctx['accurate'] and not (self.failed_downloads_in_running or self.sigint or self.sigquit) \
+                if self._dl_ctx['accurate'] and not (self.failed_downloads_in_running or self.sigint or self.cmdquit) \
                 else self._calc_completed()
             progress_bar.expected_size = self._dl_ctx['total_size']
             progress_bar.done()
@@ -1807,7 +1807,7 @@ class BDownloader(object):
         if keyboard_interrupt:
             self.sigint = True
         else:
-            self.sigquit = True
+            self.cmdquit = True
 
     def close(self):
         """Shut down and perform the cleanup.
