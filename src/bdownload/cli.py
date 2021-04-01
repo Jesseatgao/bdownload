@@ -243,15 +243,45 @@ def _arg_parser():
     return parser
 
 
-def sigint_handler(bdownloader, signum, frame):
-    """The handler for the signal ``SIGINT``.
+def _interrupt_handler(bdownloader, signum, frame):
+    """The handler for the signals ``SIGINT`` and ``SIGQUIT``.
 
     Args:
         bdownloader (BDownloader): The :obj:`BDownloader` instance acting as the file downloader.
-        signum: The signal number :obj:`signal.SIGINT`.
+        signum: The signal number being either ``signal.SIGINT`` or ``signal.SIGQUIT``.
         frame: The current stack frame when the signal ``SIGINT`` is received.
     """
     bdownloader.cancel(keyboard_interrupt=True)
+
+
+def _cmd_quit_handler(bdownloader, signum, frame):
+    """The handler for the signals ``SIGTERM``, ``SIGABRT``, ``SIGHUP`` and ``SIGBREAK``.
+
+    Args:
+        bdownloader (BDownloader): The :obj:`BDownloader` instance acting as the file downloader.
+        signum: The signal number being one of the possible values as ``signal.SIGTERM``, ``signal.SIGABRT``,
+            ``signal.SIGHUP``, or ``signal.SIGBREAK``.
+        frame: The current stack frame when the signal ``SIGINT`` is received.
+    """
+    bdownloader.cancel(keyboard_interrupt=False)
+
+
+def _install_signal_handlers(bdownloader):
+    """Install handlers for termination signals.
+
+    Args:
+        bdownloader (BDownloader): The :obj:`BDownloader` instance acting as the file downloader.
+    """
+    sig_actions = [('SIGINT', partial(_interrupt_handler, bdownloader)),
+                   ('SIGQUIT', partial(_interrupt_handler, bdownloader)),
+                   ('SIGTERM', partial(_cmd_quit_handler, bdownloader)),
+                   ('SIGABRT', partial(_cmd_quit_handler, bdownloader)),
+                   ('SIGHUP', partial(_cmd_quit_handler, bdownloader)),
+                   ('SIGBREAK', partial(_cmd_quit_handler, bdownloader))]
+
+    for sig, act in sig_actions:
+        if hasattr(signal, sig):
+            signal.signal(getattr(signal, sig), act)
 
 
 def main():
@@ -290,7 +320,7 @@ def main():
         with BDownloader(max_workers=args.max_workers, min_split_size=args.min_split_size, chunk_size=args.chunk_size,
                          proxy=args.proxy, cookies=args.cookie, user_agent=args.user_agent, progress=args.progress,
                          num_pools=args.num_pools, pool_maxsize=args.pool_size, continuation=continuation) as downloader:
-            signal.signal(signal.SIGINT, partial(sigint_handler, downloader))
+            _install_signal_handlers(downloader)
             downloader.downloads(path_urls)
             succeeded, failed = downloader.wait_for_all()
     except Exception as e:
