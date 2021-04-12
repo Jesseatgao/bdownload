@@ -13,6 +13,7 @@ import threading
 from concurrent.futures import ThreadPoolExecutor, CancelledError  # ,wait
 from math import trunc
 import re
+from operator import itemgetter
 
 # Extracted from `futures`
 try:
@@ -505,9 +506,9 @@ class BDownloader(object):
                     "tsk_num": 2,  # number of the `ranges` and `futures`
                     "orig_path_url": ('file1', 'url1\turl2\turl3'),  # (path, url) as a subparameter passed to :meth:`downloads`
                     "path_url": ('full_path_to_file1', 'url1\turl2\turl3'),  # (full_pathname, active_URLs)
-                    "urls":{"url1":{"accept_ranges": "bytes", "refcnt": 1}, "url2":{"accept_ranges": "none", "refcnt": 0},
-                            "url3":{"accept_ranges": "bytes", "refcnt": 1}},
-                    "alt_urls_sorted": ["url2", "url1", "url3"],  # sorted by `refcnt`, statically allocated for now
+                    "urls":{"url1":{"accept_ranges": "bytes", "refcnt": 1, "interrupted": 2, "succeeded": -5},
+                            "url2":{"accept_ranges": "none", "refcnt": 0, "interrupted": 0, "succeeded": 0},
+                            "url3":{"accept_ranges": "bytes", "refcnt": 1, "interrupted": 0, "succeeded": -2}},
                     "ranges":{
                         "bytes=0-999": {
                             "start": 0,  # start byte position
@@ -517,7 +518,8 @@ class BDownloader(object):
                             "rt_dl_speed": 0,  # x seconds interval
                             "download_state": "inprocess",
                            "future": future1,
-                           "url": [url1]
+                           "url": [url1],
+                           "alt_urls": {}
                         },
                         "bytes=1000-1999": {
                             "start":1000,
@@ -527,7 +529,8 @@ class BDownloader(object):
                             "rt_dl_speed": 0,  # x seconds interval
                             "download_state": "inprocess",
                             "future": future2,
-                            "url": [url3]
+                            "url": [url3],
+                            "alt_urls": {}
                         }
                     }
                 },
@@ -793,7 +796,7 @@ class BDownloader(object):
             None.
 
         Raises:
-            requests.RequestException: Raised when connect timeouts, read timeouts, failed connections or bad status
+            :class:`BDownloaderException`: Raised when connect timeouts, read timeouts, failed connections or bad status
                 codes occurred and the retries is exhausted.
             EnvironmentError: Raised when file operations failed.
         """
@@ -837,6 +840,10 @@ class BDownloader(object):
                                                        os.path.basename(path_name), start, end, ctx_range['start'],
                                                        ctx_range['end'], e)
 
+                                    # increment the interrupted connection count
+                                    ctx_url = ctx_range['alt_urls'].setdefault(url, {})
+                                    ctx_url['interrupted'] = ctx_url.get('interrupted', 0) + 1
+
                                     break
                             else:
                                 msg = "Unexpected status code {}, which should have been {}.".format(r.status_code, requests.codes.partial)
@@ -846,15 +853,23 @@ class BDownloader(object):
                                 os.path.basename(path_name), start, end, ctx_range['start'], ctx_range['end'], e)
                             self._logger.error(msg)
 
+                            # increment the failed connection count
+                            ctx_url = ctx_range['alt_urls'].setdefault(url, {})
+                            ctx_url['interrupted'] = ctx_url.get('interrupted', 0) + 1
+
                             if alt_urls is None:
-                                # Get alternative URLs from statically allocated, sorted sources for now
-                                alt_urls = [alt_url for alt_url in ctx_file['alt_urls_sorted'] if alt_url != url]
+                                # Get alternative URLs from sorted sources used to resume downloading from
+                                alt_urls_sorted = self._get_alt_urls(path_name)
+                                alt_urls = [alt_url for alt_url in alt_urls_sorted if alt_url != url]
 
                             if not alt_urls or alt_try >= len(alt_urls):
                                 raise BDownloaderException(msg)
                             else:
                                 url = alt_urls[alt_try]
                                 alt_try += 1
+
+                                ctx_range['alt_urls'][url] = {'refcnt': 1}
+                                ctx_range['url'].append(url)
 
                                 break
                     else:
@@ -884,7 +899,7 @@ class BDownloader(object):
             None.
 
         Raises:
-            requests.RequestException: Raised when connect timeouts, read timeouts, failed connections or bad status
+            :class:`BDownloaderException`: Raised when connect timeouts, read timeouts, failed connections or bad status
                 codes occurred and the retries is exhausted.
             EnvironmentError: Raised when file operations failed.
         """
@@ -892,8 +907,8 @@ class BDownloader(object):
         ctx_range = ctx_file['ranges'][req_range]
         url = ctx_range['url'][0]
 
-        # Get alternative URLs from statically allocated, sorted sources for now
-        alt_urls = [alt_url for alt_url in ctx_file['alt_urls_sorted'] if alt_url != url]
+        # Get alternative URLs from sorted sources used to resume downloading from
+        alt_urls = [alt_url for alt_url in self._get_alt_urls(path_name) if alt_url != url]
         alt_try = 0  # number of tries at alternative URLs
         max_retries = self.resumption_retries
         range_req_satisfiable = True  # The serve may choose to ignore the `Range` header
@@ -1008,17 +1023,20 @@ class BDownloader(object):
             path_name (str): The full path name of the file to be downloaded.
 
         Returns:
-            list: The alternative source URLs sorted by ascending `refcnt`.
+            list: The alternative source URLs sorted by descending succeeded downloads, then by ascending interrupted
+            and references.
         """
         ctx_file_urls = self._dl_ctx['files'][path_name]['urls']
         if self._is_download_resumable(path_name):
-            url_ctxs = {url: ctx_url for url, ctx_url in ctx_file_urls.items() if ctx_url['accept_ranges'] == 'bytes'}
+            url_ctxs = [(url, ctx_url['succeeded'], ctx_url['interrupted'], ctx_url['refcnt'])
+                        for url, ctx_url in ctx_file_urls.items() if ctx_url['accept_ranges'] == 'bytes']
         else:
-            url_ctxs = ctx_file_urls
+            url_ctxs = [(url, ctx_url['succeeded'], ctx_url['interrupted'], ctx_url['refcnt'])
+                        for url, ctx_url in ctx_file_urls.items()]
 
-        url_ctxs_sorted = sorted(url_ctxs.items(), key=lambda kv: kv[1]['refcnt'])
+        url_ctxs_sorted = sorted(url_ctxs, key=itemgetter(1, 2, 3))
 
-        return [url for url, _ in url_ctxs_sorted]
+        return [url_ctx[0] for url_ctx in url_ctxs_sorted]
 
     @staticmethod
     def _get_fname_from_hdr(content_disposition):
@@ -1246,9 +1264,8 @@ class BDownloader(object):
                                 r.close()
                                 continue
 
-                    ctx_url = ctx_file['urls'][mirror_url] = {}
-                    ctx_url['accept_ranges'] = "none"
-                    ctx_url['refcnt'] = 0
+                    ctx_url = ctx_file['urls'][mirror_url] = {'accept_ranges': "none", 'refcnt': 0, 'interrupted': 0,
+                                                              'succeeded': 0}
 
                     accept_ranges = r.headers.get('Accept-Ranges')
                     if "bytes" == accept_ranges:
@@ -1354,7 +1371,8 @@ class BDownloader(object):
                         'start_time': 0,
                         'rt_dl_speed': 0,
                         'download_state': self.PENDING,
-                        'url': next(iter_url)})
+                        'url': next(iter_url),
+                        'alt_urls': {}})
             else:
                 ctx_file['last_progress'] = resumption_ctx['progress']
                 ctx_file['ranges'] = resumption_ctx['failed_ranges']
@@ -1362,9 +1380,7 @@ class BDownloader(object):
 
                 for ctx_range in ctx_file['ranges'].values():
                     ctx_range['url'] = next(iter_url)
-
-            # set alternative URLs used to resume downloading from on error
-            ctx_file['alt_urls_sorted'] = self._get_alt_urls(file_path_name)
+                    ctx_range['alt_urls'] = {}
 
         return downloadable, path_url, orig_path_url
 
@@ -1579,6 +1595,14 @@ class BDownloader(object):
                                     if exception is None:
                                         ctx_range['download_state'] = self.SUCCEEDED
                                         ctx_file['progress'] += ctx_range['offset']
+
+                                        # Accumulate the download statistics of the source URLs
+                                        for url, ctx_url_range in ctx_range['alt_urls'].items():
+                                            ctx_url_file = ctx_file['urls'][url]
+                                            ctx_url_file['refcnt'] += ctx_url_range.get('refcnt', 0)
+                                            ctx_url_file['interrupted'] += ctx_url_range.get('interrupted', 0)
+                                        # use MINUS for ease of multi-level sorting
+                                        ctx_file['urls'][ctx_range['url'][-1]]['succeeded'] -= 1
                                     else:  # exception raised
                                         ctx_range['download_state'] = self.FAILED
                                         future_aborted = True
