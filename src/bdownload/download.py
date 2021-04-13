@@ -1308,6 +1308,7 @@ class BDownloader(object):
 
             is_resuming, resumption_ctx = self._load_resumption_ctx(file_path_name, ctx_file)
             ctx_file['resuming_from_intr'] = is_resuming
+            ctx_file['progress'] = ctx_file['last_progress'] = resumption_ctx['progress'] if is_resuming else 0
 
             # check whether the desired file already exists or not
             if self.continuation and not is_resuming and os.path.isfile(file_path_name):
@@ -1374,7 +1375,6 @@ class BDownloader(object):
                         'url': next(iter_url),
                         'alt_urls': {}})
             else:
-                ctx_file['last_progress'] = resumption_ctx['progress']
                 ctx_file['ranges'] = resumption_ctx['failed_ranges']
                 ctx_file['tsk_num'] = len(ctx_file['ranges'])
 
@@ -1548,7 +1548,7 @@ class BDownloader(object):
 
     def _cancel_all_on_interrupted(self):
         """Cancel all the downloading tasks when receiving the ``SIGINT`` signal or the QUIT command."""
-        if not self.cancelled_on_interrupt:
+        if self.all_submitted and not self.cancelled_on_interrupt:
             for f in self._dl_ctx['futures']:
                 f.cancel()
 
