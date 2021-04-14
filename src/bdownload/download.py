@@ -498,6 +498,8 @@ class BDownloader(object):
                     "progress": 0,  # `SUCCEEDED` downloaded bytes: initialized to 0, set to the last progress when
                                     # resuming and updated on completion (SUCCEEDED only!) of every task (`Future`)
                     "last_progress": 0,  # CONSTANT: the loaded progress of last run upon resuming from interruption
+                    "downloaded": 0, # downloaded bytes: initialized to 0, set to the last progress when resuming
+                                     # and updated on completion (SUCCEEDED, FAILED, CANCELLED) of every task (`Future`)
                     "resumable": True,
                     "resuming_from_intr": False,  # Are we resuming from keyboard interruption?
                     "download_state": "inprocess",
@@ -1241,9 +1243,9 @@ class BDownloader(object):
             file_path = path_head
 
         orig_urls = url.split('\t')  # maybe TAB-separated URLs
-        ctx_file = {'length': 0, 'progress': 0, 'last_progress': 0, 'resumable': False, 'resuming_from_intr': False,
-                    'download_state': self.PENDING, 'cancelled_on_exception': False, 'futures': [], 'tsk_num': 0,
-                    'orig_path_url': orig_path_url, 'urls': {}, 'ranges': {}}
+        ctx_file = {'length': 0, 'progress': 0, 'last_progress': 0, 'downloaded': 0, 'resumable': False,
+                    'resuming_from_intr': False, 'download_state': self.PENDING, 'cancelled_on_exception': False,
+                    'futures': [], 'tsk_num': 0, 'orig_path_url': orig_path_url, 'urls': {}, 'ranges': {}}
 
         active_urls = []
         downloadable = False  # Must have at least one active URL to download the file
@@ -1308,7 +1310,8 @@ class BDownloader(object):
 
             is_resuming, resumption_ctx = self._load_resumption_ctx(file_path_name, ctx_file)
             ctx_file['resuming_from_intr'] = is_resuming
-            ctx_file['progress'] = ctx_file['last_progress'] = resumption_ctx['progress'] if is_resuming else 0
+            ctx_file['progress'] = \
+                ctx_file['downloaded'] = ctx_file['last_progress'] = resumption_ctx['progress'] if is_resuming else 0
 
             # check whether the desired file already exists or not
             if self.continuation and not is_resuming and os.path.isfile(file_path_name):
@@ -1590,6 +1593,8 @@ class BDownloader(object):
                         future = ctx_range['future']
                         if future.done():
                             if ctx_range['download_state'] not in self._COMPLETED:
+                                ctx_file['downloaded'] += ctx_range['offset']
+
                                 try:
                                     exception = future.exception()
                                     if exception is None:
@@ -1667,12 +1672,15 @@ class BDownloader(object):
         """
         completed = 0
         for ctx_file in self._dl_ctx['files'].values():
-            completed += ctx_file['last_progress']
+            if ctx_file['download_state'] not in self._COMPLETED:
+                completed += ctx_file['last_progress']
 
-            ctx_ranges = ctx_file.get('ranges')
-            if ctx_ranges:
-                for ctx_range in ctx_ranges.values():
-                    completed += ctx_range.get('offset', 0)
+                ctx_ranges = ctx_file.get('ranges')
+                if ctx_ranges:
+                    for ctx_range in ctx_ranges.values():
+                        completed += ctx_range.get('offset', 0)
+            else:
+                completed += ctx_file['downloaded']
 
         return completed
 
