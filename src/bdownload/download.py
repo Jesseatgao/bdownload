@@ -492,6 +492,8 @@ class BDownloader(object):
         ctx = {
             "total_size": 2000,  # total size of all the to-be-downloaded files, maybe inaccurate due to chunked transfer encoding
             "accurate": True,  # Is `total_size` accurate?
+            "file_cnt": 2,  # number of current downloading files
+            "alt_files": [("full_path_to_file1", `ctx_file1_obj`), ("full_path_to_file2", `ctx_file2_obj`)],  # flattened `files`
             "files":{
                 "full_path_to_file1":{
                     "length": 2000,  # 0 means 'unknown', i.e. file size can't be pre-determined through any one of provided URLs
@@ -683,7 +685,8 @@ class BDownloader(object):
         # Flag indicating that cancellation of all the tasks have been done on demand, e.g. by pressing `Ctrl-C` or `q`
         self.cancelled_on_interrupt = False
         self.stop = False  # Flag signaling waiting threads to exit
-        self._dl_ctx = {"total_size": 0, "accurate": True, "files": {}, "futures": {}}  # see CTX structure definition
+        # The download context that maintains the status of the downloading files and the corresponding chunks
+        self._dl_ctx = {"total_size": 0, "accurate": True, "file_cnt": 0, "alt_files": [], "files": {}, "futures": {}}
 
         # list: A downloadable subset of all the `(path, url)`\ s that were passed to :meth:`BDownloader.download` or
         # :meth:`BDownloader.downloads`.
@@ -1348,7 +1351,7 @@ class BDownloader(object):
 
                     return False, path_url, orig_path_url
 
-            # make the file visible to the world
+            # Add the file to the list ready to download
             self._dl_ctx['files'][file_path_name] = ctx_file
 
             self._dl_ctx['total_size'] += ctx_file['length']
@@ -1384,6 +1387,10 @@ class BDownloader(object):
                 for ctx_range in ctx_file['ranges'].values():
                     ctx_range['url'] = next(iter_url)
                     ctx_range['alt_urls'] = {}
+
+            # make the file visible to the world
+            self._dl_ctx['alt_files'].append((file_path_name, ctx_file))
+            self._dl_ctx['file_cnt'] += 1
 
         return downloadable, path_url, orig_path_url
 
@@ -1580,7 +1587,8 @@ class BDownloader(object):
         if self.sigint or self.cmdquit:
             self._cancel_all_on_interrupted()
 
-        for ctx_file in self._dl_ctx['files'].values():
+        for fi in range(self._dl_ctx['file_cnt']):
+            _, ctx_file = self._dl_ctx['alt_files'][fi]
             if ctx_file['download_state'] not in self._COMPLETED:
                 ranges_all_done = True
                 future_aborted = False
@@ -1671,7 +1679,8 @@ class BDownloader(object):
             int: The size in bytes of the downloaded pieces.
         """
         completed = 0
-        for ctx_file in self._dl_ctx['files'].values():
+        for fi in range(self._dl_ctx['file_cnt']):
+            _, ctx_file = self._dl_ctx['alt_files'][fi]
             if ctx_file['download_state'] not in self._COMPLETED:
                 completed += ctx_file['last_progress']
 
