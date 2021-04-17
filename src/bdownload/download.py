@@ -1804,7 +1804,7 @@ class BDownloader(object):
     def _wait_py3(self):
         """Wait for all the jobs done on Python 3.x and newer"""
         while not self.all_done:
-            self.all_done_event.wait()
+            self.all_done_event.wait(self._INTERRUPTIBLE_WAIT_TIMEOUT)
 
     def _wait_py2(self):
         """Wait for all the jobs done on Python 2.x"""
