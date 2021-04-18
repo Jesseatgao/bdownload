@@ -323,10 +323,7 @@ def main():
             _install_signal_handlers(downloader)
             downloader.downloads(path_urls)
             succeeded, failed = downloader.wait_for_all()
-    except Exception as e:
-        print(repr(e))
-        exit_code = -1
-    except KeyboardInterrupt as e:
+    except (Exception, KeyboardInterrupt) as e:
         print(str(e))
         exit_code = -1
 

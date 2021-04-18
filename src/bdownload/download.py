@@ -205,13 +205,15 @@ class RequestsSessionWrapper(Session):
     #: Default timeouts: the connect timeout value defaults to 3.05 seconds, and the read timeout 6 seconds.
     TIMEOUT = (3.05, 6)
 
-    def __init__(self, timeout=None):
+    def __init__(self, timeout=None, downloader=None):
         """Initialize the ``Session`` instance with default timeouts.
 
         Args:
             timeout (float or 2-tuple of float): Timeout value(s) as a float or ``(connect, read)`` tuple for both the
                 ``connect`` and the ``read`` timeouts, respectively. If set to ``None``, ``0`` or ``()``, whether the
                 whole or any item thereof, it will take a default value from :attr:`TIMEOUT`, accordingly.
+            downloader (:class:`BDownloader`): The ``BDownloader`` instance that uses the instantiated session object as
+                the HTTP(S) requester.
         """
         super(RequestsSessionWrapper, self).__init__()
 
@@ -229,6 +231,7 @@ class RequestsSessionWrapper(Session):
                 timeout = self.TIMEOUT
 
         self.timeout = timeout
+        self.downloader = downloader
 
     @retry_requests(requests.RequestException, backoff_factor=RETRY_BACKOFF_FACTOR)
     def get(self, url, **kwargs):
@@ -240,14 +243,20 @@ class RequestsSessionWrapper(Session):
 
         Returns:
             ``requests.Response``: The response to the HTTP ``GET`` request.
+
+        Raises:
+            :class:`BDownloaderException`: Raised when the termination or cancellation flag has been set.
         """
+        if self.downloader:
+            self.downloader.raise_on_interrupted()  # jump instantly out of the retries when interrupted by user
+
         kwargs.setdefault('timeout', self.timeout)
 
         return super(RequestsSessionWrapper, self).get(url, **kwargs)
 
 
 def requests_retry_session(builtin_retries=None, backoff_factor=0.1, status_forcelist=None, timeout=None,
-                           session=None, num_pools=20, pool_maxsize=20):
+                           session=None, num_pools=20, pool_maxsize=20, downloader=None):
     """Create a session object of the class :class:`RequestsSessionWrapper` by default.
 
     Aside from the retry mechanism implemented by the wrapper decorator, the created session also leverages the built-in
@@ -276,6 +285,8 @@ def requests_retry_session(builtin_retries=None, backoff_factor=0.1, status_forc
             ``urllib3.PoolManager`` and will eventually be passed to it.
         pool_maxsize (int): The maximum number of connections to save that can be reused in the ``urllib3`` connection
             pool, which will be passed to the underlying ``requests.adapters.HTTPAdapter``.
+        downloader (:class:`BDownloader`): The ``BDownloader`` instance that uses the returned session object as the
+            HTTP(S) requester.
 
     Returns:
         ``requests.Session``: The session instance with retry capability.
@@ -283,7 +294,7 @@ def requests_retry_session(builtin_retries=None, backoff_factor=0.1, status_forc
     References:
          https://www.peterbe.com/plog/best-practice-with-retries-with-requests
     """
-    session = session or RequestsSessionWrapper(timeout=timeout)
+    session = session or RequestsSessionWrapper(timeout=timeout, downloader=downloader)
 
     builtin_retries = builtin_retries or URLLIB3_BUILTIN_RETRIES_ON_EXCEPTION
     status_forcelist = status_forcelist or URLLIB3_RETRY_STATUS_CODES
@@ -573,7 +584,7 @@ class BDownloader(object):
     _MAX_WORKERS = (_cpu_count() or 1) * 5  # In line with `futures`
 
     # Default chunk size for streaming the download
-    _STREAM_CHUNK_SIZE = 7168  # FIXME: requests #5536
+    _STREAM_CHUNK_SIZE = 7168
 
     # The timeout value to allow the waiting event to be interruptible
     _INTERRUPTIBLE_WAIT_TIMEOUT = 0.5
@@ -663,7 +674,7 @@ class BDownloader(object):
                                                 backoff_factor=RETRY_BACKOFF_FACTOR,
                                                 status_forcelist=status_forcelist,
                                                 timeout=request_timeout,
-                                                num_pools=num_pools, pool_maxsize=pool_maxsize)
+                                                num_pools=num_pools, pool_maxsize=pool_maxsize, downloader=self)
         if proxy is not None:
             self.requester.proxies = dict(http=proxy, https=proxy)
         if cookies is not None:
@@ -781,7 +792,7 @@ class BDownloader(object):
         """
         return True if self._dl_ctx['files'][path_name]['resumable'] else False
 
-    def _raise_on_interrupted(self):
+    def raise_on_interrupted(self):
         """Raise a customized exception signaling that the downloads have been terminated by the user.
 
         Raises:
@@ -839,7 +850,7 @@ class BDownloader(object):
                                         fd.write(chunk)
                                         ctx_range['offset'] += len(chunk)
 
-                                        self._raise_on_interrupted()
+                                        self.raise_on_interrupted()
                                 except requests.RequestException as e:
                                     self._logger.error("Error while downloading '%s'(range:%d-%d/%d-%d): '%r'",
                                                        os.path.basename(path_name), start, end, ctx_range['start'],
@@ -952,7 +963,7 @@ class BDownloader(object):
                                     if headers:
                                         range_start = ctx_range['start'] + ctx_range['offset']
 
-                                    self._raise_on_interrupted()
+                                    self.raise_on_interrupted()
 
                                 break
                             except requests.RequestException as e:
