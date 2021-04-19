@@ -503,6 +503,8 @@ class BDownloader(object):
         ctx = {
             "total_size": 2000,  # total size of all the to-be-downloaded files, maybe inaccurate due to chunked transfer encoding
             "accurate": True,  # Is `total_size` accurate?
+            "orig_path_urls": [('file1', 'url1\turl2\turl3'), ('file2', 'url4\turl5\turl6')],  # originally added downloads,
+                # which don't necessarily correspond to `files` e.g. due to duplicate or interruption
             "file_cnt": 2,  # number of current downloading files
             "alt_files": [("full_path_to_file1", `ctx_file1_obj`), ("full_path_to_file2", `ctx_file2_obj`)],  # flattened `files`
             "files":{
@@ -697,7 +699,8 @@ class BDownloader(object):
         self.cancelled_on_interrupt = False
         self.stop = False  # Flag signaling waiting threads to exit
         # The download context that maintains the status of the downloading files and the corresponding chunks
-        self._dl_ctx = {"total_size": 0, "accurate": True, "file_cnt": 0, "alt_files": [], "files": {}, "futures": {}}
+        self._dl_ctx = {"total_size": 0, "accurate": True, "orig_path_urls": [],
+                        "file_cnt": 0, "alt_files": [], "files": {}, "futures": {}}
 
         # list: A downloadable subset of all the `(path, url)`\ s that were passed to :meth:`BDownloader.download` or
         # :meth:`BDownloader.downloads`.
@@ -1238,6 +1241,9 @@ class BDownloader(object):
             indicates whether the desired file is downloadable, unavailable or existing by ``True``, ``False`` or
             ``None`` respectively, ``(path, url)`` denotes the converted full pathname and the URL that consists
             only of active URLs, and ``(orig_path, orig_url)`` denotes the originally input pathname and URL.
+
+        Raises:
+            :class:`BDownloaderException`: Raised when the termination or cancellation flag has been set.
         """
         path_url, orig_path_url = (path_name, url), (path_name, url)  # original `(path, url)`
 
@@ -1416,6 +1422,9 @@ class BDownloader(object):
             :obj:`list`\ s ``active`` and ``active_orig`` contain the active ``(path, url)``'s, converted and original
             respectively; ``failed`` and ``failed_orig`` contain the same ``(path, url)``'s that are not downloadable;
             ``existing`` and ``existing_orig`` contain the downloads whose desired files already exist out there.
+
+        Raises:
+            :class:`BDownloaderException`: Raised when the termination or cancellation flag has been set.
         """
         active, active_orig = [], []
         failed, failed_orig = [], []
@@ -1750,6 +1759,10 @@ class BDownloader(object):
         Returns:
             None.
 
+        Raises:
+            :class:`BDownloaderException`: Raised when the downloads were interrupted, e.g. by calling :meth:`cancel`
+                in a ``SIGINT`` signal handler, in the process of submitting the download requests.
+
         Notes:
             The method is not thread-safe, which means it should not be called at the same time in multiple threads
             with one instance.
@@ -1760,6 +1773,8 @@ class BDownloader(object):
             other instances.
             However, this limitation doesn't apply to the file paths specified in a same instance.
         """
+        self._dl_ctx['orig_path_urls'].extend(path_urls)
+
         for chunk_path_urls in self.list_split(path_urls, chunk_size=2):
             active, active_orig, _, failed_orig, _, existing_orig = self._build_ctx(chunk_path_urls)
             if active:
@@ -1792,6 +1807,9 @@ class BDownloader(object):
         Returns:
             None.
 
+        Raises:
+            Same as in :meth:`downloads`.
+
         Notes:
             The limitation on the method and the `path_name` parameter herein is the same as in :meth:`downloads`.
         """
@@ -1804,11 +1822,7 @@ class BDownloader(object):
             tuple of list: Same as that returned by :meth:`wait_for_all`.
         """
         succeeded = self.succeeded_downloads_in_running + self.succeeded_downloads_on_addition
-
-        # `failed_downloads_in_running` may not equal `self.failed_downloads_in_running`, e.g. when interrupted on Py2.x
-        # Furthermore, it may not be the case as its name suggested for the same reason
-        failed_downloads_in_running = [path_url for path_url in self.active_downloads_added if path_url not in succeeded]
-        failed = self.failed_downloads_on_addition + failed_downloads_in_running
+        failed = [path_url for path_url in self._dl_ctx['orig_path_urls'] if path_url not in succeeded]
 
         return succeeded, failed
 
@@ -1868,6 +1882,14 @@ class BDownloader(object):
             None.
         """
 
+        if not self.all_submitted:
+            self._logger.warning('All the downloads may not have been submitted!')
+
+            succeeded, failed = self.wait_for_all()
+            if not (self.sigint and not _py3plus):
+                self._logger.warning('"Succeeded in downloading: %r; failed to download: %r"', succeeded, failed)
+
+        # actual `close` starts here
         self.stop = True
 
         if self.sigint and not _py3plus:
