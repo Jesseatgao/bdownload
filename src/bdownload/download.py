@@ -429,8 +429,7 @@ class MillProgress(object):
         td = timedelta(seconds=seconds)
         dt = datetime(1, 1, 1) + td
 
-        return '{:04d}Y:{:02d}M:{:02d}D-{:02d}h:{:02d}m:{:02d}s'.format(dt.year-1, dt.month-1, dt.day-1,
-                                                                        dt.hour, dt.minute, dt.second)
+        return '{:02d}:{:02d}:{:02d}'.format(dt.hour, dt.minute, dt.second) if not any([dt.year-1, dt.month-1, dt.day-1]) else '--:--:--'
 
     def mill_char(self, progress):
         # if self.expected_size and progress >= self.expected_size:
