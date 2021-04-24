@@ -385,8 +385,11 @@ class MillProgress(object):
          https://github.com/kennethreitz-archive/clint/blob/master/clint/textui/progress.py
     """
     STREAM = sys.stderr
-    MILL_TEMPLATE = '{}  {}  {:,d}/{:<}  {}  {:>}: {}\r'
+    MILL_TEMPLATE = '{}  {}  {:,d}/{:<}  {}  {} {}\r'
     MILL_CHARS = ['|', '/', '-', '\\']
+
+    NULL_EXPECTED_DISP = '--'
+    NULL_EXPECTED_WIDTH = len(NULL_EXPECTED_DISP)
 
     # How long to wait before recalculating the ETA
     ETA_INTERVAL = 1
@@ -400,8 +403,13 @@ class MillProgress(object):
         self.done()
         return False
 
-    def __init__(self, label='', hide=None, expected_size=None, every=1):
+    def __init__(self, label='', hide=None, expected_size=None, every=1, eta_tag='eta:', elapsed_tag='elapsed:'):
         self.label = label
+
+        timetag_width = max(len(eta_tag), len(elapsed_tag))
+        self.eta_tag = '{: >{width}}'.format(eta_tag, width=timetag_width)
+        self.elapsed_tag = '{: >{width}}'.format(elapsed_tag, width=timetag_width)
+
         self.hide = hide
         # Only show bar in terminals by default (better for piping, logging etc.)
         if hide is None:
@@ -444,26 +452,27 @@ class MillProgress(object):
 
         self.last_progress = progress
 
-        if self.expected_size:
-            if progress <= self.expected_size:
-                if (time.time() - self.etadelta) > self.ETA_INTERVAL:
-                    self.etadelta = time.time()
-                    self.ittimes = \
-                        self.ittimes[-self.ETA_SMA_WINDOW:] + \
-                        [(time.time() - self.start) / (progress + 1)]
-                    self.eta = \
-                        sum(self.ittimes) / len(self.ittimes) * \
-                        (self.expected_size - progress)
-                    self.etadisp = self.format_time(self.eta)
-            else:
-                self.etadisp = '--:--:--'
+        if self.expected_size and progress <= self.expected_size:
+            if (time.time() - self.etadelta) > self.ETA_INTERVAL:
+                self.etadelta = time.time()
+                self.ittimes = \
+                    self.ittimes[-self.ETA_SMA_WINDOW:] + \
+                    [(time.time() - self.start) / (progress + 1)]
+                self.eta = \
+                    sum(self.ittimes) / len(self.ittimes) * \
+                    (self.expected_size - progress)
+                self.etadisp = self.format_time(self.eta)
+
+            time_disp = self.etadisp
+            time_label = self.eta_tag
         else:
             self.elapsed = time.time() - self.start
             elapsed_disp = self.format_time(self.elapsed)
 
-        time_disp = self.etadisp if self.expected_size else elapsed_disp
-        time_label = 'eta' if self.expected_size else 'elapsed'
-        expected_disp = '{:<,d}'.format(self.expected_size) if self.expected_size else '--'
+            time_disp = elapsed_disp
+            time_label = self.elapsed_tag
+
+        expected_disp = '{:<{width},d}'.format(self.expected_size, width=self.NULL_EXPECTED_WIDTH) if self.expected_size else self.NULL_EXPECTED_DISP
         percent_disp = '{:6.2f}%'.format(trunc(progress/self.expected_size*100*100)/100) if self.expected_size else ''
 
         if not self.hide:
@@ -483,8 +492,8 @@ class MillProgress(object):
     def done(self):
         self.elapsed = time.time() - self.start
         elapsed_disp = self.format_time(self.elapsed)
-        time_label = 'elapsed'
-        expected_disp = '{:<,d}'.format(self.expected_size) if self.expected_size else '--'
+        time_label = self.elapsed_tag
+        expected_disp = '{:<{width},d}'.format(self.expected_size, width=self.NULL_EXPECTED_WIDTH) if self.expected_size else self.NULL_EXPECTED_DISP
         percent_disp = '{:6}%'.format(trunc(self.last_progress/self.expected_size*100)) if self.expected_size else ''
 
         if not self.hide:
@@ -1724,9 +1733,9 @@ class BDownloader(object):
             if self.progress == self.PROGRESS_BS_BAR:
                 accurate_progress_bar = progress.Bar(expected_size=total_size)
             else:
-                accurate_progress_bar = MillProgress(label='Downloaded/Expected:', expected_size=total_size, every=1024)
+                accurate_progress_bar = MillProgress(label='Dl/Expect:', expected_size=total_size, every=1024)
         else:
-            inaccurate_progress_bar = MillProgress(label='Downloaded/Expected(inaccurate):', expected_size=total_size, every=1024)
+            inaccurate_progress_bar = MillProgress(label='Dl/Expect(approx.):', expected_size=total_size, every=1024)
 
         progress_bar = accurate_progress_bar if self._dl_ctx['accurate'] else inaccurate_progress_bar
         while not self.stop:
