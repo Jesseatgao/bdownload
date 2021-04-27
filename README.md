@@ -111,7 +111,10 @@ BDownloader.downloads(path_urls)
     ('_/**to**/**be**/created/_', '_https://flash.jiefang.rmy/lc-cl/gaozhuang/chelsia/rockspeaker.tar.gz_'), ('_/path/to/**existing**-dir_',
     '_https://ghosthat.bar/foo/puretonecone81.xz\thttps://tpot.horn/foo/puretonecone81.xz\thttps://hawkhill.bar/foo/puretonecone81.xz_')].
     
-  > :warning:\
+    Note that `BDownloaderException` will be raised if the downloads were interrupted, e.g. by calling
+    `BDownloader.cancel()` in a `SIGINT` signal handler, in the process of submitting the download requests.
+
+  > **:warning:**\
   > The method is not thread-safe, which means it should not be called at the same time in multiple threads
   > with one instance.
   >
@@ -129,7 +132,10 @@ BDownloader.download(path, url)
   * Similar to `BDownloader.downloads()`, in fact it is just a special case of which, with [(`path`, `url`)] composed of
     the specified parameters as the input.
     
-  > :warning:\
+    Note that `BDownloaderException` will be raised if the download was interrupted, e.g. by calling
+    `BDownloader.cancel()` in a `SIGINT` signal handler, in the process of submitting the download request.
+    
+  > **:warning:**\
   > The limitation on the method and the `path_name` parameter herein is the same as in `BDownloader.downloads()`.
 
 `
