@@ -1,6 +1,10 @@
 graft src
 graft tests
 graft third_parties
+graft docs
 
-include VERSION
+include requirements.txt
+include .travis.yml
+include tox.ini
+
 global-exclude *.py[cod] __pycache__
