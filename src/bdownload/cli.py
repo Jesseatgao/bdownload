@@ -222,6 +222,10 @@ def _arg_parser():
 
     parser.add_argument('--user-agent', dest='user_agent', default=None, help='custom user agent')
 
+    parser.add_argument('--referrer', dest='referrer', default='*',
+                        help='HTTP request header "Referer" that applies to all downloads. In particular, use "*" to '
+                             'tell the downloader to take the request URL as the referrer per download [default: *]')
+
     parser.add_argument('-P', '--progress', dest='progress', default='mill', choices=['mill', 'bar', 'none'],
                         help='progress indicator. To disable this feature, use "none". [default: mill]')
 
@@ -319,7 +323,8 @@ def main():
     try:
         with BDownloader(max_workers=args.max_workers, min_split_size=args.min_split_size, chunk_size=args.chunk_size,
                          proxy=args.proxy, cookies=args.cookie, user_agent=args.user_agent, progress=args.progress,
-                         num_pools=args.num_pools, pool_maxsize=args.pool_size, continuation=continuation) as downloader:
+                         num_pools=args.num_pools, pool_maxsize=args.pool_size, continuation=continuation,
+                         referrer=args.referrer) as downloader:
             _install_signal_handlers(downloader)
             downloader.downloads(path_urls)
             succeeded, failed = downloader.wait_for_all()

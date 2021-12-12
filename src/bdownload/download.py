@@ -205,13 +205,20 @@ class RequestsSessionWrapper(Session):
     #: Default timeouts: the connect timeout value defaults to 3.05 seconds, and the read timeout 6 seconds.
     TIMEOUT = (3.05, 6)
 
-    def __init__(self, timeout=None, downloader=None):
-        """Initialize the ``Session`` instance with default timeouts.
+    def __init__(self, timeout=None, proxy=None, cookies=None, user_agent=None, referrer=None, downloader=None):
+        """Initialize the ``Session`` instance.
+
+        The HTTP header ``User-Agent`` of the session is set to a default value of `bdownload/VERSION`, if not provided,
+        with `VERSION` being replaced by the package's version number.
 
         Args:
             timeout (float or 2-tuple of float): Timeout value(s) as a float or ``(connect, read)`` tuple for both the
                 ``connect`` and the ``read`` timeouts, respectively. If set to ``None``, ``0`` or ``()``, whether the
                 whole or any item thereof, it will take a default value from :attr:`TIMEOUT`, accordingly.
+            proxy (str): Same as for :meth:`BDownloader.__init__()`.
+            cookies (str, dict or CookieJar): Same as for :meth:`BDownloader.__init__()`.
+            user_agent (str): Same as for :meth:`BDownloader.__init__()`.
+            referrer (str): Same as for :meth:`BDownloader.__init__()`.
             downloader (:class:`BDownloader`): The ``BDownloader`` instance that uses the instantiated session object as
                 the HTTP(S) requester.
         """
@@ -233,6 +240,19 @@ class RequestsSessionWrapper(Session):
         self.timeout = timeout
         self.downloader = downloader
 
+        self.referrer = referrer.strip() if referrer is not None else referrer
+        if self.referrer:
+            self.headers.update({'Referer': self.referrer})
+
+        default_user_agent = 'bdownload/{}'.format(__version__)
+        self.user_agent = user_agent if user_agent and user_agent.strip() else default_user_agent
+        self.headers.update({'User-Agent': self.user_agent})
+
+        if proxy is not None:
+            self.proxies = dict(http=proxy, https=proxy)
+        if cookies is not None:
+            self.cookies = cookies if isinstance(cookies, (dict, cookielib.CookieJar)) else self._build_cookiejar_from_kvp(cookies)
+
     @retry_requests(requests.RequestException, backoff_factor=RETRY_BACKOFF_FACTOR)
     def get(self, url, **kwargs):
         """Wrapper around ``requests.Session``'s `get` method decorated with the :func:`retry_requests` decorator.
@@ -252,10 +272,42 @@ class RequestsSessionWrapper(Session):
 
         kwargs.setdefault('timeout', self.timeout)
 
+        if self.referrer and self.referrer == '*':
+            self.headers.update({'Referer': url})
+
         return super(RequestsSessionWrapper, self).get(url, **kwargs)
 
+    @staticmethod
+    def _build_cookiejar_from_kvp(key_values):
+        """Build a CookieJar from cookies in the form of key/value pairs.
 
-def requests_retry_session(builtin_retries=None, backoff_factor=0.1, status_forcelist=None, timeout=None,
+        Args:
+            key_values (str): The cookies must take the form of ``'cookie_key=cookie_value'``, with multiple pairs separated
+                by whitespace and/or semicolon if applicable, e.g. ``'key1=val1 key2=val2; key3=val3'``.
+
+        Returns:
+            ``requests.cookies.RequestsCookieJar``: The built CookieJar for ``requests`` sessions.
+
+        Raises:
+            ValueError: Raised when the cookies string `key_values` is not in valid format.
+        """
+        if key_values:
+            if not COOKIE_STR_REGEX.match(key_values):
+                msg = 'Cookie {!r} is not in valid format!'.format(key_values)
+                raise ValueError(msg)
+
+            key_values = key_values.replace(';', ' ')  # Convert semicolons to whitespaces for ease of split
+
+            cookiejar = RequestsCookieJar()
+            kvps = key_values.split()
+            for kvp in kvps:
+                key, value = kvp.split("=")
+                cookiejar.set(key, value)
+
+            return cookiejar
+
+
+def requests_retry_session(builtin_retries=None, backoff_factor=0.1, status_forcelist=None,
                            session=None, num_pools=20, pool_maxsize=20, downloader=None):
     """Create a session object of the class :class:`RequestsSessionWrapper` by default.
 
@@ -268,9 +320,6 @@ def requests_retry_session(builtin_retries=None, backoff_factor=0.1, status_forc
     which applies to all the exceptions and those status codes that fall into the `status_forcelist`. For other status
     codes, the maximum retries shall be :data:`_requests_extended_retries_factor`.
 
-    The HTTP header ``User-Agent`` of the session is set to a default value of `bdownload/VERSION`, with `VERSION` being
-    replaced by the package's version number.
-
     Args:
         builtin_retries (int): Maximum number of retry attempts allowed on errors and interested status codes, which will
             apply to the retry logic of the underlying ``urllib3``. If set to `None` or ``0``, it will default to
@@ -278,7 +327,6 @@ def requests_retry_session(builtin_retries=None, backoff_factor=0.1, status_forc
         backoff_factor (float): The backoff factor to apply between retries.
         status_forcelist (set of int): A set of HTTP status codes that a retry should be enforced on. The default status
             forcelist shall be :const:`URLLIB3_RETRY_STATUS_CODES` if not given.
-        timeout (float or 2-tuple of float): Same as for :meth:`RequestsSessionWrapper.__init__()`.
         session (:obj:`requests.Session`): An instance of the class ``requests.Session`` or its customized subclass.
             When not provided, it will use :class:`RequestsSessionWrapper` to create by default.
         num_pools (int): The number of connection pools to cache, which has the same meaning as `num_pools` in
@@ -294,17 +342,10 @@ def requests_retry_session(builtin_retries=None, backoff_factor=0.1, status_forc
     References:
          https://www.peterbe.com/plog/best-practice-with-retries-with-requests
     """
-    session = session or RequestsSessionWrapper(timeout=timeout, downloader=downloader)
+    session = session or RequestsSessionWrapper(downloader=downloader)
 
     builtin_retries = builtin_retries or URLLIB3_BUILTIN_RETRIES_ON_EXCEPTION
     status_forcelist = status_forcelist or URLLIB3_RETRY_STATUS_CODES
-
-    # Initialize the session with default HTTP headers
-    default_user_agent = 'bdownload/{}'.format(__version__)
-    headers = {
-        'User-Agent': default_user_agent,
-    }
-    session.headers = headers
 
     # Initialize the built-in retry mechanism and the connection pools
     max_retries = Retry(
@@ -612,7 +653,7 @@ class BDownloader(object):
 
     def __init__(self, max_workers=None, min_split_size=1024*1024, chunk_size=1024*100, proxy=None, cookies=None,
                  user_agent=None, logger=None, progress='mill', num_pools=20, pool_maxsize=20, request_timeout=None,
-                 request_retries=None, status_forcelist=None, resumption_retries=None, continuation=True):
+                 request_retries=None, status_forcelist=None, resumption_retries=None, continuation=True, referrer=None):
         """Create and initialize a :class:`BDownloader` object.
 
         Args:
@@ -667,6 +708,8 @@ class BDownloader(object):
             continuation (bool): The `continuation` parameter specifies whether, if possible, to resume the partially
                 downloaded files before, e.g. when the downloads had been terminated by the user by pressing `Ctrl-C`.
                 When not present, it will default to `True`.
+            referrer (str): `referrer` specifies an HTTP request header ``Referer`` that applies to all downloads.
+                If set to ``'*'``, the request URL shall be used as the referrer per download.
 
         Raises:
             ValueError: Raised when the `cookies` is of the :obj:`str` type and not in valid format.
@@ -680,17 +723,12 @@ class BDownloader(object):
             # Fall back on the defaults if None, 0 or a negative number is given
             request_retries = URLLIB3_BUILTIN_RETRIES_ON_EXCEPTION
 
-        self.requester = requests_retry_session(builtin_retries=request_retries,
+        session = RequestsSessionWrapper(timeout=request_timeout, proxy=proxy, cookies=cookies, user_agent=user_agent,
+                                         referrer=referrer, downloader=self)
+        self.requester = requests_retry_session(session=session, builtin_retries=request_retries,
                                                 backoff_factor=RETRY_BACKOFF_FACTOR,
                                                 status_forcelist=status_forcelist,
-                                                timeout=request_timeout,
                                                 num_pools=num_pools, pool_maxsize=pool_maxsize, downloader=self)
-        if proxy is not None:
-            self.requester.proxies = dict(http=proxy, https=proxy)
-        if cookies is not None:
-            self.requester.cookies = cookies if isinstance(cookies, (dict, cookielib.CookieJar)) else self._build_cookiejar_from_kvp(cookies)
-        if user_agent is not None:
-            self.requester.headers.update({'User-Agent': user_agent})
 
         self.executor = ThreadPoolExecutor(max_workers)
         self.max_workers = max_workers or self._MAX_WORKERS
@@ -1114,35 +1152,6 @@ class BDownloader(object):
 
         # limit the length of the filename to 250
         return fname[-250:].strip()
-
-    @staticmethod
-    def _build_cookiejar_from_kvp(key_values):
-        """Build a CookieJar from cookies in the form of key/value pairs.
-
-        Args:
-            key_values (str): The cookies must take the form of ``'cookie_key=cookie_value'``, with multiple pairs separated
-                by whitespace and/or semicolon if applicable, e.g. ``'key1=val1 key2=val2; key3=val3'``.
-
-        Returns:
-            ``requests.cookies.RequestsCookieJar``: The built CookieJar for ``requests`` sessions.
-
-        Raises:
-            ValueError: Raised when the cookies string `key_values` is not in valid format.
-        """
-        if key_values:
-            if not COOKIE_STR_REGEX.match(key_values):
-                msg = 'Cookie {!r} is not in valid format!'.format(key_values)
-                raise ValueError(msg)
-
-            key_values = key_values.replace(';', ' ')  # Convert semicolons to whitespaces for ease of split
-
-            cookiejar = RequestsCookieJar()
-            kvps = key_values.split()
-            for kvp in kvps:
-                key, value = kvp.split("=")
-                cookiejar.set(key, value)
-
-            return cookiejar
 
     @staticmethod
     def _topmost_missing_dir(path):
