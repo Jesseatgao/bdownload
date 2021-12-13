@@ -270,7 +270,7 @@ def _cmd_quit_handler(bdownloader, signum, frame):
     bdownloader.cancel(keyboard_interrupt=False)
 
 
-def _install_signal_handlers(bdownloader):
+def install_signal_handlers(bdownloader):
     """Install handlers for termination signals.
 
     Args:
@@ -325,7 +325,7 @@ def main():
                          proxy=args.proxy, cookies=args.cookie, user_agent=args.user_agent, progress=args.progress,
                          num_pools=args.num_pools, pool_maxsize=args.pool_size, continuation=continuation,
                          referrer=args.referrer) as downloader:
-            _install_signal_handlers(downloader)
+            install_signal_handlers(downloader)
             downloader.downloads(path_urls)
             succeeded, failed = downloader.wait_for_all()
     except (Exception, KeyboardInterrupt) as e:

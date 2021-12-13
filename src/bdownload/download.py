@@ -308,7 +308,7 @@ class RequestsSessionWrapper(Session):
 
 
 def requests_retry_session(builtin_retries=None, backoff_factor=0.1, status_forcelist=None,
-                           session=None, num_pools=20, pool_maxsize=20, downloader=None):
+                           session=None, num_pools=20, pool_maxsize=20, **kwargs):
     """Create a session object of the class :class:`RequestsSessionWrapper` by default.
 
     Aside from the retry mechanism implemented by the wrapper decorator, the created session also leverages the built-in
@@ -333,8 +333,7 @@ def requests_retry_session(builtin_retries=None, backoff_factor=0.1, status_forc
             ``urllib3.PoolManager`` and will eventually be passed to it.
         pool_maxsize (int): The maximum number of connections to save that can be reused in the ``urllib3`` connection
             pool, which will be passed to the underlying ``requests.adapters.HTTPAdapter``.
-        downloader (:class:`BDownloader`): The ``BDownloader`` instance that uses the returned session object as the
-            HTTP(S) requester.
+        **kwargs: Same arguments as that :meth:`RequestsSessionWrapper.__init__()` takes.
 
     Returns:
         ``requests.Session``: The session instance with retry capability.
@@ -342,7 +341,7 @@ def requests_retry_session(builtin_retries=None, backoff_factor=0.1, status_forc
     References:
          https://www.peterbe.com/plog/best-practice-with-retries-with-requests
     """
-    session = session or RequestsSessionWrapper(downloader=downloader)
+    session = session or RequestsSessionWrapper(**kwargs)
 
     builtin_retries = builtin_retries or URLLIB3_BUILTIN_RETRIES_ON_EXCEPTION
     status_forcelist = status_forcelist or URLLIB3_RETRY_STATUS_CODES
@@ -728,7 +727,7 @@ class BDownloader(object):
         self.requester = requests_retry_session(session=session, builtin_retries=request_retries,
                                                 backoff_factor=RETRY_BACKOFF_FACTOR,
                                                 status_forcelist=status_forcelist,
-                                                num_pools=num_pools, pool_maxsize=pool_maxsize, downloader=self)
+                                                num_pools=num_pools, pool_maxsize=pool_maxsize)
 
         self.executor = ThreadPoolExecutor(max_workers)
         self.max_workers = max_workers or self._MAX_WORKERS
