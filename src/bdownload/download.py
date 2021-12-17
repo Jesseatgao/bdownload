@@ -43,7 +43,7 @@ from requests.adapters import HTTPAdapter
 from requests.packages.urllib3.util.retry import Retry
 from requests import Session
 from requests.cookies import cookielib, RequestsCookieJar
-from clint.textui import progress
+from clint.textui import progress as clint_progress
 
 
 here = os.path.dirname(os.path.abspath(__file__))
@@ -1736,18 +1736,22 @@ class BDownloader(object):
             None.
         """
         total_size = self._dl_ctx['total_size']
+        dl_acc_changed = False  # Added unknown-sized downloads?
+        acc_label = 'Dl/Expect:'
+        inacc_label = 'Dl/Expect(approx.):'
 
-        if self._dl_ctx['accurate']:
-            if self.progress == self.PROGRESS_BS_BAR:
-                accurate_progress_bar = progress.Bar(expected_size=total_size)
-            else:
-                accurate_progress_bar = MillProgress(label='Dl/Expect:', expected_size=total_size, every=1024)
-        else:
-            inaccurate_progress_bar = MillProgress(label='Dl/Expect(approx.):', expected_size=total_size, every=1024)
+        mill = MillProgress(label=acc_label, expected_size=total_size, every=1024)
+        progress_bar = clint_progress.Bar(expected_size=total_size) if self.progress == self.PROGRESS_BS_BAR else mill
 
-        progress_bar = accurate_progress_bar if self._dl_ctx['accurate'] else inaccurate_progress_bar
         while not self.stop:
-            progress_bar = accurate_progress_bar if self._dl_ctx['accurate'] else inaccurate_progress_bar
+            if not self._dl_ctx['accurate'] and not dl_acc_changed:
+                if progress_bar is not mill:
+                    progress_bar = mill
+
+                    self._logger.info("The progress bar has been changed to a mill due to unknown-sized download(s)")
+
+                mill.label = inacc_label
+                dl_acc_changed = True
 
             progress_bar.show(self._calc_completed(), count=self._dl_ctx['total_size'])
 
