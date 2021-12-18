@@ -1735,22 +1735,20 @@ class BDownloader(object):
         Returns:
             None.
         """
-        total_size = self._dl_ctx['total_size']
         dl_acc_changed = False  # Added unknown-sized downloads?
         acc_label = 'Dl/Expect:'
         inacc_label = 'Dl/Expect(approx.):'
 
-        mill = MillProgress(label=acc_label, expected_size=total_size, every=1024)
-        progress_bar = clint_progress.Bar(expected_size=total_size) if self.progress == self.PROGRESS_BS_BAR else mill
+        progress_bar = MillProgress(label=acc_label, every=1024) if self.progress == self.PROGRESS_BS_MILL else clint_progress.Bar()
 
         while not self.stop:
             if not self._dl_ctx['accurate'] and not dl_acc_changed:
-                if progress_bar is not mill:
-                    progress_bar = mill
+                if self.progress != self.PROGRESS_BS_MILL:
+                    progress_bar = MillProgress(every=1024)
 
                     self._logger.info("The progress bar has been changed to a mill due to unknown-sized download(s)")
 
-                mill.label = inacc_label
+                progress_bar.label = inacc_label
                 dl_acc_changed = True
 
             progress_bar.show(self._calc_completed(), count=self._dl_ctx['total_size'])
