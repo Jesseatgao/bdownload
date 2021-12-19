@@ -226,6 +226,13 @@ def _arg_parser():
                         help='HTTP request header "Referer" that applies to all downloads. In particular, use "*" to '
                              'tell the downloader to take the request URL as the referrer per download [default: *]')
 
+    parser.add_argument('--check-certificate', dest='check_certificate', default='True',
+                        choices=['True', 'true', 'TRUE', 'False', 'false', 'FALSE'],
+                        help='whether to verify the server\'s TLS certificate or not [default: True]')
+
+    parser.add_argument('--ca-certificate', dest='ca_certificate', default=None,
+                        help='path to the preferred CA bundle file or directory with certificates of trusted CAs')
+
     parser.add_argument('-P', '--progress', dest='progress', default='mill', choices=['mill', 'bar', 'none'],
                         help='progress indicator. To disable this feature, use "none". [default: mill]')
 
@@ -312,6 +319,8 @@ def main():
 
     continuation = True if args.continuation else False if args.no_continue else True
 
+    check_certificate = True if args.check_certificate.lower() == 'true' else False
+
     files = ['']*len(args.urls) if args.output is None else args.output+['']*(len(args.urls)-len(args.output))
     if len(files) > len(args.urls):
         print('The specified OUTPUTs and URLs don\'t align, extra OUTPUTs will be ignored: {!r}'.format(args.output[len(args.urls):]))
@@ -324,7 +333,8 @@ def main():
         with BDownloader(max_workers=args.max_workers, min_split_size=args.min_split_size, chunk_size=args.chunk_size,
                          proxy=args.proxy, cookies=args.cookie, user_agent=args.user_agent, progress=args.progress,
                          num_pools=args.num_pools, pool_maxsize=args.pool_size, continuation=continuation,
-                         referrer=args.referrer) as downloader:
+                         referrer=args.referrer, check_certificate=check_certificate,
+                         ca_certificate=args.ca_certificate) as downloader:
             install_signal_handlers(downloader)
             downloader.downloads(path_urls)
             succeeded, failed = downloader.wait_for_all()
