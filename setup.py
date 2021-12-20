@@ -36,7 +36,9 @@ setup(
         'requests[socks]',
         'requests',
         'clint',
-        'futures; python_version == "2.7"'
+        'futures; python_version=="2.7"',
+        'sphinx',
+        'Jinja2==2.11.3; python_version=="3.6"'
     ],
     setup_requires=[],
     cmdclass=cmd_classes,

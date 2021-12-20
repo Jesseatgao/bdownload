@@ -1,9 +1,9 @@
 requests[socks]
 clint
-futures; python_version == "2.7"
+futures; python_version=="2.7"
 
-setuptools
-wheel
+sphinx
+Jinja2==2.11.3; python_version=="3.6"
 
 tox
 
