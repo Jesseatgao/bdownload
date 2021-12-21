@@ -33,7 +33,7 @@ A multi-threaded and multi-source aria2-like batch file downloading library for 
 class bdownload.BDownloader(max_workers=None, min_split_size=1024*1024, chunk_size=1024*100, proxy=None, cookies=None,
                             user_agent=None, logger=None, progress='mill', num_pools=20, pool_maxsize=20, request_timeout=None,
                             request_retries=None, status_forcelist=None, resumption_retries=None, continuation=True, referrer=None,
-                            check_certificate=True, ca_certificate=None)
+                            check_certificate=True, ca_certificate=None, certificate=None)
 `
 
     Create and initialize a `BDownloader` object for executing download jobs.
@@ -105,6 +105,8 @@ class bdownload.BDownloader(max_workers=None, min_split_size=1024*1024, chunk_si
   * The `check_certificate` parameter specifies whether to verify the server's TLS certificate or not. It defaults to `True`.
 
   * `ca_certificate` specifies a path to the preferred CA bundle file or directory with certificates of trusted CAs.
+
+  * `certificate` specifies a client certificate. It has the same meaning as that of `cert` in `requests.request()`.
 
 `
 BDownloader.downloads(path_urls)
@@ -283,6 +285,7 @@ bdownload [-h] [-o OUTPUT [OUTPUT ...]] [-D DIR] -L URLS [URLS ...]
                [--referrer REFERRER]
                [--check-certificate {True,true,TRUE,False,false,FALSE}]
                [--ca-certificate CA_CERTIFICATE]
+               [--certificate CERTIFICATE] [--private-key PRIVATE_KEY]
                [-P {mill,bar,none}] [--num-pools NUM_POOLS]
                [--pool-size POOL_SIZE] [-l {debug,info,warning,error,critical}]
                [-c | --no-continue]
@@ -346,7 +349,17 @@ bdownload [-h] [-o OUTPUT [OUTPUT ...]] [-D DIR] -L URLS [URLS ...]
 
 `--ca-certificate CA_CERTIFICATE`
 
-    path to the preferred CA bundle file or directory with certificates of trusted CAs
+    path to the preferred CA bundle file or directory with certificates of trusted CAs.
+    NB the directory must have been processed using the `c_rehash` utility from OpenSSL
+
+`--certificate CERTIFICATE`
+
+    path to a single file in PEM format containing the client certificate and optionally a chain of additional
+    certificates. If `--private-key` is not provided, then the file must contain the unencrypted private key as well
+
+`--private-key PRIVATE_KEY`
+
+    path to a file containing the unencrypted private key to the client certificate
 
 `-P {mill,bar,none}, --progress {mill,bar,none}`
 

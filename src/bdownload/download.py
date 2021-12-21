@@ -205,7 +205,8 @@ class RequestsSessionWrapper(Session):
     #: Default timeouts: the connect timeout value defaults to 3.05 seconds, and the read timeout 6 seconds.
     TIMEOUT = (3.05, 6)
 
-    def __init__(self, timeout=None, proxy=None, cookies=None, user_agent=None, referrer=None, verify=True, downloader=None):
+    def __init__(self, timeout=None, proxy=None, cookies=None, user_agent=None, referrer=None, verify=True, cert=None,
+                 downloader=None):
         """Initialize the ``Session`` instance.
 
         The HTTP header ``User-Agent`` of the session is set to a default value of `bdownload/VERSION`, if not provided,
@@ -219,6 +220,8 @@ class RequestsSessionWrapper(Session):
             cookies (str, dict or CookieJar): Same as for :meth:`BDownloader.__init__()`.
             user_agent (str): Same as for :meth:`BDownloader.__init__()`.
             referrer (str): Same as for :meth:`BDownloader.__init__()`.
+            verify (bool or str): Same as for :meth:`requests.request()`.
+            cert (str or tuple): Same as for :meth:`requests.request()`.
             downloader (:class:`BDownloader`): The ``BDownloader`` instance that uses the instantiated session object as
                 the HTTP(S) requester.
         """
@@ -253,6 +256,7 @@ class RequestsSessionWrapper(Session):
         if cookies is not None:
             self.cookies = cookies if isinstance(cookies, (dict, cookielib.CookieJar)) else self._build_cookiejar_from_kvp(cookies)
         self.verify = verify
+        self.cert = cert
 
     @retry_requests(requests.RequestException, backoff_factor=RETRY_BACKOFF_FACTOR)
     def get(self, url, **kwargs):
@@ -654,7 +658,7 @@ class BDownloader(object):
     def __init__(self, max_workers=None, min_split_size=1024*1024, chunk_size=1024*100, proxy=None, cookies=None,
                  user_agent=None, logger=None, progress='mill', num_pools=20, pool_maxsize=20, request_timeout=None,
                  request_retries=None, status_forcelist=None, resumption_retries=None, continuation=True, referrer=None,
-                 check_certificate=True, ca_certificate=None):
+                 check_certificate=True, ca_certificate=None, certificate=None):
         """Create and initialize a :class:`BDownloader` object.
 
         Args:
@@ -714,7 +718,10 @@ class BDownloader(object):
             check_certificate (bool): The `check_certificate` parameter specifies whether to verify the server's TLS
                 certificate or not. It defaults to `True`.
             ca_certificate (str): The `ca_certificate` parameter specifies a path to the preferred CA bundle file or
-                directory with certificates of trusted CAs.
+                directory with certificates of trusted CAs. If set to a path to a directory, the directory must have
+                been processed using the ``c_rehash`` utility supplied with OpenSSL, according to ``requests``.
+            certificate (str or tuple): `certificate` specifies a client certificate. It has the same meaning as that of
+                `cert` in :meth:`requests.request()`.
 
         Raises:
             ValueError: Raised when the `cookies` is of the :obj:`str` type and not in valid format.
@@ -731,7 +738,7 @@ class BDownloader(object):
         verify = ca_certificate if check_certificate and ca_certificate else check_certificate
 
         session = RequestsSessionWrapper(timeout=request_timeout, proxy=proxy, cookies=cookies, user_agent=user_agent,
-                                         referrer=referrer, verify=verify, downloader=self)
+                                         referrer=referrer, verify=verify, cert=certificate, downloader=self)
         self.requester = requests_retry_session(session=session, builtin_retries=request_retries,
                                                 backoff_factor=RETRY_BACKOFF_FACTOR,
                                                 status_forcelist=status_forcelist,

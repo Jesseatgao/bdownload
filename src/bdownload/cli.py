@@ -231,7 +231,16 @@ def _arg_parser():
                         help='whether to verify the server\'s TLS certificate or not [default: True]')
 
     parser.add_argument('--ca-certificate', dest='ca_certificate', default=None,
-                        help='path to the preferred CA bundle file or directory with certificates of trusted CAs')
+                        help='path to the preferred CA bundle file or directory with certificates of trusted CAs.'
+                             'NB the directory must have been processed using the `c_rehash` utility from OpenSSL')
+
+    parser.add_argument('--certificate', dest='certificate', default=None,
+                        help='path to a single file in PEM format containing the client certificate and optionally '
+                             'a chain of additional certificates. If `--private-key` is not provided, then the file '
+                             'must contain the unencrypted private key as well')
+
+    parser.add_argument('--private-key', dest='private_key', default=None,
+                        help='path to a file containing the unencrypted private key to the client certificate')
 
     parser.add_argument('-P', '--progress', dest='progress', default='mill', choices=['mill', 'bar', 'none'],
                         help='progress indicator. To disable this feature, use "none". [default: mill]')
@@ -320,6 +329,7 @@ def main():
     continuation = True if args.continuation else False if args.no_continue else True
 
     check_certificate = True if args.check_certificate.lower() == 'true' else False
+    client_certificate = (args.certificate, args.private_key) if args.certificate and args.private_key else args.certificate
 
     files = ['']*len(args.urls) if args.output is None else args.output+['']*(len(args.urls)-len(args.output))
     if len(files) > len(args.urls):
@@ -334,7 +344,7 @@ def main():
                          proxy=args.proxy, cookies=args.cookie, user_agent=args.user_agent, progress=args.progress,
                          num_pools=args.num_pools, pool_maxsize=args.pool_size, continuation=continuation,
                          referrer=args.referrer, check_certificate=check_certificate,
-                         ca_certificate=args.ca_certificate) as downloader:
+                         ca_certificate=args.ca_certificate, certificate=client_certificate) as downloader:
             install_signal_handlers(downloader)
             downloader.downloads(path_urls)
             succeeded, failed = downloader.wait_for_all()
