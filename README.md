@@ -104,7 +104,9 @@ class bdownload.BDownloader(max_workers=None, min_split_size=1024*1024, chunk_si
 
   * The `check_certificate` parameter specifies whether to verify the server's TLS certificate or not. It defaults to `True`.
 
-  * `ca_certificate` specifies a path to the preferred CA bundle file or directory with certificates of trusted CAs.
+  * `ca_certificate` specifies a path to the preferred CA bundle file (.pem) or directory with certificates in PEM format
+    of trusted CAs. If set to a path to a directory, the directory must have been processed using the `c_rehash` utility
+    supplied with OpenSSL, according to `requests`. NB the cert files in the directory each only contain one CA certificate.
 
   * `certificate` specifies a client certificate. It has the same meaning as that of `cert` in `requests.request()`.
 
@@ -349,8 +351,9 @@ bdownload [-h] [-o OUTPUT [OUTPUT ...]] [-D DIR] -L URLS [URLS ...]
 
 `--ca-certificate CA_CERTIFICATE`
 
-    path to the preferred CA bundle file or directory with certificates of trusted CAs.
-    NB the directory must have been processed using the `c_rehash` utility from OpenSSL
+    path to the preferred CA bundle file (.pem) or directory with certificates in PEM format of trusted CAs.
+    NB the directory must have been processed using the `c_rehash` utility from OpenSSL. Also, the cert files in the directory
+    each only contain one CA certificate
 
 `--certificate CERTIFICATE`
 

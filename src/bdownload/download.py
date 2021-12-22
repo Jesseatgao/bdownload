@@ -717,9 +717,10 @@ class BDownloader(object):
                 If set to ``'*'``, the request URL shall be used as the referrer per download.
             check_certificate (bool): The `check_certificate` parameter specifies whether to verify the server's TLS
                 certificate or not. It defaults to `True`.
-            ca_certificate (str): The `ca_certificate` parameter specifies a path to the preferred CA bundle file or
-                directory with certificates of trusted CAs. If set to a path to a directory, the directory must have
-                been processed using the ``c_rehash`` utility supplied with OpenSSL, according to ``requests``.
+            ca_certificate (str): The `ca_certificate` parameter specifies a path to the preferred CA bundle file (.pem)
+                or directory with certificates in PEM format of trusted CAs. If set to a path to a directory, the directory
+                must have been processed using the ``c_rehash`` utility supplied with OpenSSL, according to ``requests``.
+                NB the cert files in the directory each only contain one CA certificate.
             certificate (str or tuple): `certificate` specifies a client certificate. It has the same meaning as that of
                 `cert` in :meth:`requests.request()`.
 

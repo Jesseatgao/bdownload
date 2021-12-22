@@ -231,8 +231,9 @@ def _arg_parser():
                         help='whether to verify the server\'s TLS certificate or not [default: True]')
 
     parser.add_argument('--ca-certificate', dest='ca_certificate', default=None,
-                        help='path to the preferred CA bundle file or directory with certificates of trusted CAs.'
-                             'NB the directory must have been processed using the `c_rehash` utility from OpenSSL')
+                        help='path to the preferred CA bundle file (.pem) or directory with certificates in PEM format '
+                             'of trusted CAs. NB the directory must have been processed using the `c_rehash` utility '
+                             'from OpenSSL. Also, the cert files in the directory each only contain one CA certificate')
 
     parser.add_argument('--certificate', dest='certificate', default=None,
                         help='path to a single file in PEM format containing the client certificate and optionally '
