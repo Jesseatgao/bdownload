@@ -450,6 +450,7 @@ class MillProgress(object):
 
     def __init__(self, label='', hide=None, expected_size=None, every=1, eta_tag='eta:', elapsed_tag='elapsed:'):
         self.label = label
+        self.width = 0
 
         timetag_width = max(len(eta_tag), len(elapsed_tag))
         self.eta_tag = '{: >{width}}'.format(eta_tag, width=timetag_width)
@@ -485,10 +486,6 @@ class MillProgress(object):
         return '{:02d}:{:02d}:{:02d}'.format(dt.hour, dt.minute, dt.second) if not any([dt.year-1, dt.month-1, dt.day-1]) else '--:--:--'
 
     def mill_char(self, progress):
-        # if self.expected_size and progress >= self.expected_size:
-        #     return ' '
-        # else:
-        #     return self.MILL_CHARS[(progress // self.every) % len(self.MILL_CHARS)]
         return self.MILL_CHARS[(progress // self.every) % len(self.MILL_CHARS)]
 
     def show(self, progress, count=None):
@@ -521,14 +518,16 @@ class MillProgress(object):
         percent_disp = '{:6.2f}%'.format(trunc(progress/self.expected_size*100*100)/100) if self.expected_size else ''
 
         if not self.hide:
-            #if ((progress % self.every) == 0 or  # True every "every" updates
             if ((progress % self.every) == 0 or (progress - self.delta_progress) // self.every >= 1 or  # True every "every" updates
                     (self.expected_size and progress == self.expected_size)):  # And when we're done
+                mill_bar = self.MILL_TEMPLATE.format(self.label, self.mill_char(self.every_progress),
+                                                     progress, expected_disp, percent_disp, time_label, time_disp)
+                mill_bar_len = len(mill_bar)
+                if self.width > mill_bar_len:
+                    mill_bar += ' ' * (self.width - mill_bar_len)
+                self.width = mill_bar_len
 
-                # self.STREAM.write(self.MILL_TEMPLATE % (
-                #     self.label, self.mill_char(progress), str(progress), expected, elapsed))
-                self.STREAM.write(self.MILL_TEMPLATE.format(self.label, self.mill_char(self.every_progress),
-                                                            progress, expected_disp, percent_disp, time_label, time_disp))
+                self.STREAM.write(mill_bar)
                 self.STREAM.flush()
 
                 self.delta_progress = progress
@@ -542,8 +541,14 @@ class MillProgress(object):
         percent_disp = '{:6}%'.format(trunc(self.last_progress/self.expected_size*100)) if self.expected_size else ''
 
         if not self.hide:
-            self.STREAM.write(self.MILL_TEMPLATE.format(
-                self.label, ' ', self.last_progress, expected_disp, percent_disp, time_label, elapsed_disp))
+            mill_bar = self.MILL_TEMPLATE.format(self.label, ' ', self.last_progress, expected_disp, percent_disp,
+                                                 time_label, elapsed_disp)
+            mill_bar_len = len(mill_bar)
+            if self.width > mill_bar_len:
+                mill_bar += ' ' * (self.width - mill_bar_len)
+            self.width = mill_bar_len
+
+            self.STREAM.write(mill_bar)
             self.STREAM.write('\n')
             self.STREAM.flush()
 
