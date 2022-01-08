@@ -281,7 +281,8 @@ if __name__ == '__main__':
 #### Synopsis
 
 ```
-bdownload [-h] [-o OUTPUT [OUTPUT ...]] [-D DIR] -L URLS [URLS ...]
+bdownload      url | -L URLS [URLS ...]
+               [-O OUTPUT | -o OUTPUT [OUTPUT ...]] [-D DIR]
                [-p PROXY] [-n MAX_WORKERS] [-k MIN_SPLIT_SIZE]
                [-s CHUNK_SIZE] [-e COOKIE] [--user-agent USER_AGENT]
                [--referrer REFERRER]
@@ -291,13 +292,28 @@ bdownload [-h] [-o OUTPUT [OUTPUT ...]] [-D DIR] -L URLS [URLS ...]
                [-P {mill,bar,none}] [--num-pools NUM_POOLS]
                [--pool-size POOL_SIZE] [-l {debug,info,warning,error,critical}]
                [-c | --no-continue]
+               [-h]
 ```
 
 #### Description
 
-`-h, --help`
+`url`
 
-    show help message and exit
+    URL for the file to be downloaded, which can be either a single URL or TAB-separated composite URL 
+    pointing to the same file, e.g. `"https://www.afilelink.com/afile.tar.gz"`, 
+    and `"https://www.afilelink.com/afile.tar.gz\thttps://nianpei.bpfatran.com/afile.tar.gz"`
+
+`-L URLS [URLS ...], --url URLS [URLS ...]`
+
+    URL(s) for the files to be downloaded, each of which might contain TAB-separated URLs 
+    pointing to the same file, e.g. `-L https://yoursite.net/yourfile.7z`, 
+    `-L "https://yoursite01.net/thefile.7z\thttps://yoursite02.com/thefile.7z"`, 
+    or `--url "http://foo.cc/file1.zip" "http://bar.cc/file2.tgz\thttp://bar2.cc/file2.tgz"`
+
+`-O OUTPUT, --OUTPUT OUTPUT`
+
+    a save-as file name (optionally with absolute or relative (to `-D DIR`) path), 
+    e.g. `-O afile.tar.gz https://www.afilelink.com/afile.tar.gz`
 
 `-o OUTPUT [OUTPUT ...], --output OUTPUT [OUTPUT ...]`
 
@@ -306,13 +322,7 @@ bdownload [-h] [-o OUTPUT [OUTPUT ...]] [-D DIR] -L URLS [URLS ...]
 
 `-D DIR, --dir DIR`
 
-    directory in which to save the downloaded files
-
-`-L URLS [URLS ...], --url URLS [URLS ...]`
-
-    URL(s) for the files to be downloaded, which might be TAB-separated URLs pointing to the same file, e.g.
-    `-L https://yoursite.net/yourfile.7z`, `-L "https://yoursite01.net/thefile.7z\thttps://yoursite02.com/thefile.7z"`, 
-    or `--url "http://foo.cc/file1.zip" "http://bar.cc/file2.tgz\thttp://bar2.cc/file2.tgz"`
+    directory in which to save the downloaded files [default: directory in which this App is running]
 
 `-p PROXY, --proxy PROXY`
 
@@ -387,6 +397,21 @@ bdownload [-h] [-o OUTPUT [OUTPUT ...]] [-D DIR] -L URLS [URLS ...]
 `--no-continue`
 
     do not resume from last interruption, i.e. start the download from beginning
+
+`-h, --help`
+
+    show help message and exit
+
+#### Examples
+
+    bdownload https://www.afilelink.com/afile.tar.gz
+    bdownload -O /abspath/to/afile.tar.gz https://www.afilelink.com/afile.tar.gz
+    bdownload -O /abspath/to/a/dir/ https://www.afilelink.com/afile.tar.gz
+    bdownload -O /abspath/to/afile.tar.gz "https://www.afilelink.com/afile.tar.gz\thttps://nianpei.bpfatran.com/afile.tar.gz"
+    bdownload -D path/to/working_dir/ -O relpath/to/working_dir/alias_afile.tar.gz https://www.afilelink.com/afile.tar.gz
+    bdownload -D path/to/working/dir https://www.afilelink.com/afile.tar.gz
+    bdownload -o /abspath/to/file1.zip ~/file2.tgz -L "http://foo.cc/file1.zip" "http://bar.cc/file2.tgz\thttp://bar2.cc/file2.tgz"
+    bdownload -D path/to/working/dir -L "http://foo.cc/file1.zip" "http://bar.cc/file2.tgz\thttp://bar2.cc/file2.tgz"
 
 ### Donation
     If you like the project, please support it by donation

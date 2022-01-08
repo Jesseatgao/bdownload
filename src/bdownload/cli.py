@@ -69,7 +69,7 @@ def _dec_raw_tab_separated_urls(url):
     """Decode a *raw* URL string that may consist of multiple escaped TAB-separated URLs.
 
     Args:
-        url (str): URL for the files to be downloaded, which might be TAB-separated URLs pointing to the same file.
+        url (str): URL for the file to be downloaded, which might be TAB-separated composite URL pointing to the same file.
 
             | Examples of `url` include:
 
@@ -189,18 +189,29 @@ def _load_cookies(cookies):
 def _arg_parser():
     parser = ArgumentParser()
 
-    parser.add_argument('-o', '--output', nargs='+', dest='output',
-                        help='one or more file names (optionally prefixed with relative (to `-D DIR`) or absolute paths), '
-                             'e.g. `-o file1.zip ~/file2.tgz`, paired with URLs specified by `--url` or `-L`')
+    omeg = parser.add_mutually_exclusive_group()
+    omeg.add_argument('-O', '--OUTPUT', dest='output', type=lambda f: [f],
+                      help='a save-as file name (optionally with absolute or relative (to `-D DIR`) path), '
+                           'e.g. `-O afile.tar.gz https://www.afilelink.com/afile.tar.gz`')
+    omeg.add_argument('-o', '--output', nargs='+', dest='output',
+                      help='one or more file names (optionally prefixed with relative (to `-D DIR`) or absolute paths),'
+                           ' e.g. `-o file1.zip ~/file2.tgz`, paired with URLs specified by `--url` or `-L`')
 
-    parser.add_argument('-D', '--dir', default='.', dest='dir', help='directory in which to save the downloaded files')
+    parser.add_argument('-D', '--dir', default='.', dest='dir',
+                        help='directory in which to save the downloaded files [default: directory in which this App is running]')
 
-    parser.add_argument('-L', '--url', nargs='+', required=True, dest='urls', type=_dec_raw_tab_separated_urls,
-                        help='URL(s) for the files to be downloaded, '
-                             'which might be TAB-separated URLs pointing to the same file, '
-                             'e.g. `-L https://yoursite.net/yourfile.7z`, '
-                             '`-L "https://yoursite01.net/thefile.7z\\thttps://yoursite02.com/thefile.7z"`, '
-                             'or `--url "http://foo.cc/file1.zip" "http://bar.cc/file2.tgz\\thttp://bar2.cc/file2.tgz"`')
+    lmeg = parser.add_mutually_exclusive_group(required=True)
+    lmeg.add_argument('url', nargs='?', type=lambda url: [_dec_raw_tab_separated_urls(url)],
+                      help='URL for the file to be downloaded, '
+                           'which can be either a single URL or TAB-separated composite URL pointing to the same file, '
+                           'e.g. `"https://www.afilelink.com/afile.tar.gz"`, '
+                           'and `"https://www.afilelink.com/afile.tar.gz\\thttps://nianpei.bpfatran.com/afile.tar.gz"`')
+    lmeg.add_argument('-L', '--url', nargs='+', dest='urls', type=_dec_raw_tab_separated_urls,
+                      help='URL(s) for the files to be downloaded, '
+                           'each of which might contain TAB-separated URLs pointing to the same file, '
+                           'e.g. `-L https://yoursite.net/yourfile.7z`, '
+                           '`-L "https://yoursite01.net/thefile.7z\\thttps://yoursite02.com/thefile.7z"`, '
+                           'and `--url "http://foo.cc/file1.zip" "http://bar.cc/file2.tgz\\thttp://bar2.cc/file2.tgz"`')
 
     parser.add_argument('-p', '--proxy', dest='proxy', default=None,
                         help='proxy either in the form of "http://[user:pass@]host:port" or "socks5://[user:pass@]host:port"')
@@ -255,11 +266,11 @@ def _arg_parser():
     parser.add_argument('-l', '--log-level', dest='log_level', default='warning',
                         choices=['debug', 'info', 'warning', 'error', 'critical'], help='logger level [default: warning]')
 
-    grp = parser.add_mutually_exclusive_group()
-    grp.add_argument('-c', '--continue', dest='continuation', action='store_const', const=True,
-                     help='resume from the partially downloaded files. This is the default behavior')
-    grp.add_argument('--no-continue', dest='no_continue', action='store_const', const=True,
-                     help='do not resume from last interruption, i.e. start the download from beginning')
+    cmeg = parser.add_mutually_exclusive_group()
+    cmeg.add_argument('-c', '--continue', dest='continuation', action='store_const', const=True,
+                      help='resume from the partially downloaded files. This is the default behavior')
+    cmeg.add_argument('--no-continue', dest='no_continue', action='store_const', const=True,
+                      help='do not resume from last interruption, i.e. start the download from beginning')
 
     return parser
 
@@ -332,12 +343,13 @@ def main():
     check_certificate = True if args.check_certificate.lower() == 'true' else False
     client_certificate = (args.certificate, args.private_key) if args.certificate and args.private_key else args.certificate
 
-    files = ['']*len(args.urls) if args.output is None else args.output+['']*(len(args.urls)-len(args.output))
-    if len(files) > len(args.urls):
-        print('The specified OUTPUTs and URLs don\'t align, extra OUTPUTs will be ignored: {!r}'.format(args.output[len(args.urls):]))
+    urls = args.url if args.url else args.urls
+    files = ['']*len(urls) if args.output is None else args.output+['']*(len(urls)-len(args.output))
+    if len(files) > len(urls):
+        print('The specified OUTPUTs and URLs don\'t align, extra OUTPUTs will be ignored: {!r}'.format(args.output[len(urls):]))
 
     path_files = [abspath(join(args.dir, f)) for f in files]
-    path_urls = list(zip(path_files, args.urls))
+    path_urls = list(zip(path_files, urls))
 
     succeeded, failed = [], []
     try:
