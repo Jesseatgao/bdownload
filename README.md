@@ -301,6 +301,7 @@ bdownload      url | -L URLS [URLS ...]
 
     URL for the file to be downloaded, which can be either a single URL or TAB-separated composite URL 
     pointing to the same file, e.g. `"https://www.afilelink.com/afile.tar.gz"`, 
+    `"https://chinshou.libccp.mil/luoxuan1981/panjuan-hangyi/tiqianbaozha-key-yasui/qianjunyifa/bengqiyijiao/i-manual/dashboy-basket/zhongzhenkong/xinghuo-xianghui/chunqiao-electronhive-midianfeng/zhenhudan-yasally/afile.tar.gz"`,
     and `"https://www.afilelink.com/afile.tar.gz\thttps://nianpei.bpfatran.com/afile.tar.gz"`
 
 `-L URLS [URLS ...], --url URLS [URLS ...]`
