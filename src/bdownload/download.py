@@ -206,7 +206,7 @@ class RequestsSessionWrapper(Session):
     TIMEOUT = (3.05, 6)
 
     def __init__(self, timeout=None, proxy=None, cookies=None, user_agent=None, referrer=None, verify=True, cert=None,
-                 downloader=None):
+                 requester_cb=None):
         """Initialize the ``Session`` instance.
 
         The HTTP header ``User-Agent`` of the session is set to a default value of `bdownload/VERSION`, if not provided,
@@ -222,8 +222,8 @@ class RequestsSessionWrapper(Session):
             referrer (str): Same as for :meth:`BDownloader.__init__()`.
             verify (bool or str): Same as for :meth:`requests.request()`.
             cert (str or tuple): Same as for :meth:`requests.request()`.
-            downloader (:class:`BDownloader`): The ``BDownloader`` instance that uses the instantiated session object as
-                the HTTP(S) requester.
+            requester_cb (func): The callback function provided by the downloader that uses the instantiated
+                session object as the HTTP(S) requester. It will get called when making an HTTP GET request.
         """
         super(RequestsSessionWrapper, self).__init__()
 
@@ -241,7 +241,7 @@ class RequestsSessionWrapper(Session):
                 timeout = self.TIMEOUT
 
         self.timeout = timeout
-        self.downloader = downloader
+        self.requester_cb = requester_cb
 
         self.referrer = referrer.strip() if referrer is not None else referrer
         if self.referrer:
@@ -272,8 +272,8 @@ class RequestsSessionWrapper(Session):
         Raises:
             :class:`BDownloaderException`: Raised when the termination or cancellation flag has been set.
         """
-        if self.downloader:
-            self.downloader.raise_on_interrupted()  # jump instantly out of the retries when interrupted by user
+        if self.requester_cb:
+            self.requester_cb()  # e.g. jump instantly out of the retries when interrupted by user
 
         kwargs.setdefault('timeout', self.timeout)
 
@@ -744,7 +744,7 @@ class BDownloader(object):
         verify = ca_certificate if check_certificate and ca_certificate else check_certificate
 
         session = RequestsSessionWrapper(timeout=request_timeout, proxy=proxy, cookies=cookies, user_agent=user_agent,
-                                         referrer=referrer, verify=verify, cert=certificate, downloader=self)
+                                         referrer=referrer, verify=verify, cert=certificate, requester_cb=self.raise_on_interrupted)
         self.requester = requests_retry_session(session=session, builtin_retries=request_retries,
                                                 backoff_factor=RETRY_BACKOFF_FACTOR,
                                                 status_forcelist=status_forcelist,
@@ -1515,7 +1515,8 @@ class BDownloader(object):
             bool: ``True`` if all the ``Future``\ s have been done, meaning that all the files have finished downloading,
             whether successfully or not; ``False`` otherwise.
         """
-        return all(ctx_file['download_state'] in self._COMPLETED for ctx_file in self._dl_ctx['files'].values())
+        return self.all_submitted and self._dl_ctx['file_cnt'] == (
+                    len(self.succeeded_downloads_in_running) + len(self.failed_downloads_in_running))
 
     def _backup_resumption_ctx(self, the_file, ctx_file):
         """Back up the necessary context of the unsuccessful download for resuming later.
@@ -1721,7 +1722,7 @@ class BDownloader(object):
         while not self.all_done:
             self._state_mgmnt()
 
-            if self.all_submitted and self._is_all_done():
+            if self._is_all_done():
                 self.all_done = True
                 self.all_done_event.set()
 
