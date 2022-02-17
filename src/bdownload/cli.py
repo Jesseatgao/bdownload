@@ -18,7 +18,7 @@ import signal
 
 from requests.cookies import cookielib
 
-from .download import BDownloader, COOKIE_STR_REGEX
+from .download import BDownloader, COOKIE_STR_REGEX, BDownloaderException
 
 
 DEFAULT_MAX_WORKER = 20         # number of worker threads
@@ -316,11 +316,20 @@ def install_signal_handlers(bdownloader):
             signal.signal(getattr(signal, sig), act)
 
 
+def ignore_termination_signals():
+    """Cause the process not to respond to termination signals.
+    """
+    sigset = ('SIGINT', 'SIGQUIT', 'SIGTERM', 'SIGABRT', 'SIGHUP', 'SIGBREAK')
+    actset = (signal.SIG_IGN,) * len(sigset)
+
+    for sig, act in zip(sigset, actset):
+        if hasattr(signal, sig):
+            signal.signal(getattr(signal, sig), act)
+
+
 def main():
     """Collect the command-line arguments from ``sys.argv``, parse and do the downloading as specified.
     """
-    exit_code = 0
-
     try:
         unicode
 
@@ -351,7 +360,7 @@ def main():
     path_files = [abspath(join(args.dir, f)) for f in files]
     path_urls = list(zip(path_files, urls))
 
-    succeeded, failed = [], []
+    ignore_termination_signals()
     try:
         with BDownloader(max_workers=args.max_workers, min_split_size=args.min_split_size, chunk_size=args.chunk_size,
                          proxy=args.proxy, cookies=args.cookie, user_agent=args.user_agent, progress=args.progress,
@@ -361,15 +370,16 @@ def main():
             install_signal_handlers(downloader)
             downloader.downloads(path_urls)
             succeeded, failed = downloader.wait_for_all()
-    except (Exception, KeyboardInterrupt) as e:
+    except BDownloaderException as e:
         print(str(e))
-        exit_code = -1
+        succeeded, failed = downloader.results()
 
     if succeeded:
         print('Succeeded in downloading: {!r}'.format(succeeded))
     if failed:
-        exit_code = -1
         print('Failed to download: {!r}'.format(failed))
+
+    exit_code = downloader.result()
 
     fin_msg = '\nFile(s) downloading was successfully completed!' if not exit_code else '\nFile(s) downloading was aborted with erros!'
     print(fin_msg)

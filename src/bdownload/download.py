@@ -270,7 +270,9 @@ class RequestsSessionWrapper(Session):
             ``requests.Response``: The response to the HTTP ``GET`` request.
 
         Raises:
-            :class:`BDownloaderException`: Raised when the termination or cancellation flag has been set.
+            :class:`BDownloaderException`: Raised when the termination or cancellation flag has been set, for example,
+                if :attr:`RequestsSessionWrapper.requester_cb` is initialized to :meth:`BDownloader.raise_on_interrupted`.
+            Same exception(s) as that raised by :attr:`RequestsSessionWrapper.requester_cb`, if any.
         """
         if self.requester_cb:
             self.requester_cb()  # e.g. jump instantly out of the retries when interrupted by user
@@ -1900,6 +1902,30 @@ class BDownloader(object):
                                  '"succeeded in downloading: %r; failed to download: %r"', succeeded, failed)
 
         return succeeded, failed
+
+    def results(self):
+        """Get both the succeeded and failed downloads when all done or interrupted by user.
+
+        Returns:
+            tuple of list: Same as that returned by :meth:`wait_for_all`.
+        """
+        if not self.all_submitted:
+            self._logger.warning('All the downloads may not have been submitted!')
+
+            return self.wait_for_all()
+
+        return self._result()
+
+    def result(self):
+        """Return the final download status.
+
+        Returns:
+            int: 0 for success, and -1 failure.
+        """
+        added = len(self._dl_ctx['orig_path_urls'])
+        succeeded = len(self.succeeded_downloads_on_addition) + len(self.succeeded_downloads_in_running)
+
+        return 0 if not (self.sigint or self.cmdquit) and added and added == succeeded else -1
 
     def cancel(self, keyboard_interrupt=True):
         """Cancel all the download jobs.

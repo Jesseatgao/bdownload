@@ -159,6 +159,19 @@ BDownloader.wait_for_all()
     the second list _failed_ contains the raised and cancelled ones.
 
 `
+BDownloader.results()
+`
+
+    Get both the succeeded and failed downloads when all done or interrupted by user. Return a 2-tuple of list
+    same as that returned by `BDownloader.wait_for_all()`.
+
+`
+BDownloader.result()
+`
+
+    Return the final download status. 0 for success, and -1 failure.
+
+`
 BDownloader.close()
 `
 
