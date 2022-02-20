@@ -1947,13 +1947,10 @@ class BDownloader(object):
         Returns:
             None.
         """
-
         if not self.all_submitted:
             self._logger.warning('All the downloads may not have been submitted!')
 
-            succeeded, failed = self.wait_for_all()
-            if not (self.sigint and not _py3plus):
-                self._logger.warning('"Succeeded in downloading: %r; failed to download: %r"', succeeded, failed)
+            self.wait_for_all()
 
         # actual `close` starts here
         self.stop = True
