@@ -71,17 +71,17 @@ def _dec_raw_tab_separated_urls(url):
     Args:
         url (str): URL for the file to be downloaded, which might be TAB-separated composite URL pointing to the same file.
 
-            | Examples of `url` include:
-
-            - ``'https://fakewebsite-01.com/downloads/soulbody4ct.pdf\\thttps://fakewebsite-02.com/archives/soulbody4ct.pdf'``
-            - ``'https://fakewebsite-01.com/downloads/ipcress.docx	https://fakewebsite-02.com/archives/ipcress.docx'``
-            - ``'https://tianchengren:öp€nsasimi@i.louder.ss\\thttps://fangxun.xiaoqing.sunmoon.xue'``
-
     Returns:
         str: Decoded URL.
 
     Raises:
         ArgumentTypeError: Raised when `url` contains URL(s) that don't conform to the format "http[s]://[user:pass@]foo.bar[*]".
+
+    Examples:
+        Examples of the parameter `url` include:
+            * ``'https://fakewebsite-01.com/downloads/soulbody4ct.pdf\\thttps://fakewebsite-02.com/archives/soulbody4ct.pdf'``
+            * ``'https://fakewebsite-01.com/downloads/ipcress.docx	https://fakewebsite-02.com/archives/ipcress.docx'``
+            * ``'https://tianchengren:öp€nsasimi@i.louder.ss\\thttps://fangxun.xiaoqing.sunmoon.xue'``
 
     References:
         [1] https://stackoverflow.com/questions/1885181/

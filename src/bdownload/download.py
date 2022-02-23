@@ -272,7 +272,7 @@ class RequestsSessionWrapper(Session):
         Raises:
             :class:`BDownloaderException`: Raised when the termination or cancellation flag has been set, for example,
                 if :attr:`RequestsSessionWrapper.requester_cb` is initialized to :meth:`BDownloader.raise_on_interrupted`.
-            Same exception(s) as that raised by :attr:`RequestsSessionWrapper.requester_cb`, if any.
+            ExceptionByRequesterCB: Same exception(s) as that raised by :attr:`RequestsSessionWrapper.requester_cb`, if any.
         """
         if self.requester_cb:
             self.requester_cb()  # e.g. jump instantly out of the retries when interrupted by user

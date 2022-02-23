@@ -1,21 +1,18 @@
 bdownload package
 =================
 
-Submodules
-----------
+bdownload.download module
+-------------------------
+
+.. automodule:: bdownload.download
+    :members:
+    :undoc-members:
+    :show-inheritance:
 
 bdownload.cli module
 --------------------
 
 .. automodule:: bdownload.cli
-    :members:
-    :undoc-members:
-    :show-inheritance:
-
-bdownload.download module
--------------------------
-
-.. automodule:: bdownload.download
     :members:
     :undoc-members:
     :show-inheritance:
