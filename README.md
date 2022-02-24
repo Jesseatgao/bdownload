@@ -3,7 +3,10 @@
 [![Build Status](https://travis-ci.com/Jesseatgao/bdownload.svg?branch=master)](https://travis-ci.com/Jesseatgao/bdownload)
 [![Supported Versions](https://img.shields.io/pypi/pyversions/bdownload.svg)](https://pypi.org/project/bdownload)
 
-A multi-threaded and multi-source aria2-like batch file downloading library for Python
+A multi-threaded and multi-source aria2-like batch file downloading library for Python 2.7 and 3.6+
+
+> **:bulb:**\
+> See also [https://bdownload.readthedocs.io](https://bdownload.readthedocs.io) for API reference.
 
 ### Installation
 
