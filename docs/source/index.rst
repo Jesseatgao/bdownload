@@ -20,11 +20,11 @@ Usage: as a Python package
 --------------------------
 Importing
 ^^^^^^^^^
-    ``$ from bdownload import BDownloader``
+    ``from bdownload import BDownloader``
 
                     or
 
-    ``$ import bdownload``
+    ``import bdownload``
 
 Signatures
 ^^^^^^^^^^
@@ -32,6 +32,7 @@ Signatures
 
 Examples
 ^^^^^^^^
+    * `movie-downloader's third-party programs downloader <https://github.com/Jesseatgao/movie-downloader/blob/32b775c89f273d0b34af6c713e9a9362039b805c/mdl/third_parties/__init__.py#L175>`_
     * :ref:`example_cli`
     * :ref:`test_bdownloader`
     * :ref:`test_multisource_download`

@@ -199,6 +199,10 @@ bdownload.set_requests_retries_factor(retries)
 
 #### Examples
 
+* [`movie-downloader`'s third-party programs downloader](https://github.com/Jesseatgao/movie-downloader/blob/32b775c89f273d0b34af6c713e9a9362039b805c/mdl/third_parties/__init__.py#L175)
+
+* [`bdownload`'s command-line utility](https://github.com/Jesseatgao/bdownload/blob/master/src/bdownload/cli.py)
+
 * Single file downloading
 
 ```python
