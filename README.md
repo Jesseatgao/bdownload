@@ -24,7 +24,7 @@ A multi-threaded and multi-source aria2-like batch file downloading library for 
 
 #### Importing
 
-    `from bdownload import BDownloader`
+    `from bdownload import BDownloader, BDownloaderException`
 
             or
 

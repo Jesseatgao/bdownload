@@ -20,7 +20,7 @@ Usage: as a Python package
 --------------------------
 Importing
 ^^^^^^^^^
-    ``from bdownload import BDownloader``
+    ``from bdownload import BDownloader, BDownloaderException``
 
                     or
 
