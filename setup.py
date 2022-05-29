@@ -33,18 +33,19 @@ setup(
     zip_safe=False,
     python_requires='>=2.7, !=3.0.*, !=3.1.*, !=3.2.*, !=3.3.*, !=3.4.*, !=3.5.*',
     install_requires=[
-        'requests[socks]',
         'requests',
+        'requests[socks]',
+        'PySocks',
         'clint',
         'futures; python_version=="2.7"',
-        'sphinx',
-        'Jinja2==2.11.3; python_version=="3.6"'
+        'certifi==2021.10.8; python_version=="2.7"'
     ],
     setup_requires=[],
     cmdclass=cmd_classes,
     entry_points={
         'console_scripts': [
             'bdownload = bdownload.cli:main',
+            'bdownload-upd-cacert-py2 = bdownload.utils:update_cacert'
         ],
         'distutils.commands': [
             'clean = CleanCommand'
