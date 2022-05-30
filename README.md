@@ -203,6 +203,8 @@ bdownload.set_requests_retries_factor(retries)
 
 * [`bdownload`'s command-line utility](https://github.com/Jesseatgao/bdownload/blob/master/src/bdownload/cli.py)
 
+* [`bdownload`'s CACERT-updating utility](https://github.com/Jesseatgao/bdownload/blob/master/src/bdownload/utils.py)
+
 * Single file downloading
 
 ```python

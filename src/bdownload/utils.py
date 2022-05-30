@@ -39,7 +39,7 @@ CACERT_VER = 'cacert.ver'  # save the version number of the upgraded `cacert.pem
 certifi_cacert_ver = os.path.join(certifi_cacert_path, CACERT_VER)
 
 
-def get_local_cacert_ver():
+def _get_local_cacert_ver():
     if not os.path.exists(certifi_cacert_ver):
         return ''
 
@@ -47,6 +47,11 @@ def get_local_cacert_ver():
         version = fd.read().strip()
 
     return version
+
+
+def _update_local_cacert_ver(new_ver):
+    with codecs.open(certifi_cacert_ver, 'w+', 'utf-8') as fd:
+        fd.write(new_ver)
 
 
 def get_latest_tag_github(owner, repo, key, **kwargs):
@@ -68,7 +73,7 @@ def _key(tag):
     return tag['name'] if not tag['name'].startswith('v') else '1970.01.01'
 
 
-def download_certifi(pathname, url, **kwargs):
+def _download_certifi(pathname, url, **kwargs):
     ignore_termination_signals()
     downloader = BDownloader(max_workers=1, referrer='*', progress='none', **kwargs)
     install_signal_handlers(downloader)
@@ -86,7 +91,7 @@ def download_certifi(pathname, url, **kwargs):
         raise Exception("Error while downloading the 'certifi' archive...")
 
 
-def extract_cacert(from_certifi, member_cacert, to_cacert):
+def _extract_cacert(from_certifi, member_cacert, to_cacert):
     try:
         if from_certifi.endswith('.zip'):
             with zipfile.ZipFile(from_certifi) as zip_prog:
@@ -105,7 +110,7 @@ def extract_cacert(from_certifi, member_cacert, to_cacert):
         os.remove(from_certifi)
 
 
-def arg_parser():
+def _arg_parser():
     parser = ArgumentParser()
 
     parser.add_argument('-p', '--proxy', dest='proxy', help='Proxy of the form "http://[user:pass@]host:port" or "socks5://[user:pass@]host:port" ')
@@ -118,7 +123,7 @@ def update_cacert():
         print("This utility only supports updating the CA bundle on Python2. For Python3, please run 'pip install -U certifi' to update it instead.")
         sys.exit(-1)
 
-    args = arg_parser().parse_args()
+    args = _arg_parser().parse_args()
     kwargs = vars(args)
 
     try:
@@ -126,20 +131,19 @@ def update_cacert():
         repo = 'python-certifi'
         certifi_ext = '.tar.gz'
         latest_ver = get_latest_tag_github(owner=owner, repo=repo, key=_key, **kwargs)
-        local_ver = get_local_cacert_ver()
+        local_ver = _get_local_cacert_ver()
 
         if local_ver < latest_ver:
             certifi_root = '%(repo)s-%(ver)s' % {'repo': repo, 'ver': latest_ver}
             certifi_basename = '%(root)s%(ext)s' % {'root': certifi_root, 'ext': certifi_ext}
             certifi = os.path.join(certifi_cacert_path, certifi_basename)
             certifi_url = 'https://github.com/%(owner)s/%(repo)s/archive/refs/tags/%(ver)s%(ext)s' % {'owner': owner, 'repo': repo, 'ver': latest_ver, 'ext': certifi_ext}
-            download_certifi(certifi, certifi_url, **kwargs)
+            _download_certifi(certifi, certifi_url, **kwargs)
 
             cacert_path = '/'.join([certifi_root, 'certifi', CACERT_PEM])
-            extract_cacert(certifi, cacert_path, certifi_cacert)
+            _extract_cacert(certifi, cacert_path, certifi_cacert)
 
-            with codecs.open(certifi_cacert_ver, 'w+', 'utf-8') as fd:
-                fd.write(latest_ver)
+            _update_local_cacert_ver(latest_ver)
 
             print("The certifi CA bundle has been successfully updated to version '%s'." % latest_ver)
         else:
