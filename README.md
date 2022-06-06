@@ -20,6 +20,12 @@ A multi-threaded and multi-source aria2-like batch file downloading library for 
     
     Note that you should `git clone` or download the source tarball (and unpack it of course) from the repository first 
 
+> **:bulb:**\
+> For Python2.7: since the version of 2022.5.18, `certifi` has dropped the support for Python2.x. To upgrade to the latest CA
+> certificates bundle, simply run:
+> 
+> `$ bdownload-upd-cacert-py2`
+
 ### Usage: as a Python package
 
 #### Importing
