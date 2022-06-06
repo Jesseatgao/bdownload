@@ -16,6 +16,13 @@ Installation
 
     Note that you should ``git clone`` or download the source tarball (and unpack it of course) from the repository first
 
+.. admonition:: Notes
+
+    **For Python2.7**:  Since the version of 2022.5.18, `certifi` has dropped the support for Python2.x. To upgrade to
+    the latest CA certificates bundle after installation, simply run:
+
+        ``$ bdownload-upd-cacert-py2``
+
 Usage: as a Python package
 --------------------------
 Importing
@@ -34,6 +41,7 @@ Examples
 ^^^^^^^^
     * `movie-downloader's third-party programs downloader <https://github.com/Jesseatgao/movie-downloader/blob/32b775c89f273d0b34af6c713e9a9362039b805c/mdl/third_parties/__init__.py#L175>`_
     * :ref:`example_cli`
+    * `bdownload's CACERT-updating utility <https://github.com/Jesseatgao/bdownload/blob/master/src/bdownload/utils.py>`_
     * :ref:`test_bdownloader`
     * :ref:`test_multisource_download`
 

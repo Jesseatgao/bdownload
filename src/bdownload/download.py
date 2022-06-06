@@ -1850,7 +1850,7 @@ class BDownloader(object):
             None.
 
         Raises:
-            Same as in :meth:`downloads`.
+            :class:`BDownloaderException`: Same as in :meth:`downloads`.
 
         Notes:
             The limitation on the method and the `path_name` parameter herein is the same as in :meth:`downloads`.
