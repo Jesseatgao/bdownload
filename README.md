@@ -441,8 +441,3 @@ bdownload      url | -L URLS [URLS ...]
     bdownload -D path/to/working/dir https://www.afilelink.com/afile.tar.gz
     bdownload -o /abspath/to/file1.zip ~/file2.tgz -L "http://foo.cc/file1.zip" "http://bar.cc/file2.tgz\thttp://bar2.cc/file2.tgz"
     bdownload -D path/to/working/dir -L "http://foo.cc/file1.zip" "http://bar.cc/file2.tgz\thttp://bar2.cc/file2.tgz"
-
-### Donation
-    If you like the project, please support it by donation
-    [![PayPal donate button](https://img.shields.io/badge/paypal-donate-yellow.svg)](
-    https://www.paypal.com/cgi-bin/webscr?cmd=_xclick&business=changxigao@gmail.com&item_name=Support%20bdownload&currency_code=USD)
