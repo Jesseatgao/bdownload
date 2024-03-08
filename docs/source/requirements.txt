@@ -1,5 +1,4 @@
-# pip==20.3.4; python_version=="2.7"
-# pip>=21.3.1; python_version>="3.6"
+# Requirements for RTD to build docs
 
 urllib3>=1.26, <2
 requests
@@ -12,13 +11,4 @@ certifi==2021.10.8; python_version=="2.7"
 sphinx==1.8.6; python_version=="2.7"
 sphinx; python_version>="3.6"
 Jinja2==2.11.3; python_version=="3.6"
-
-tox
-
-setuptools>=39.0.1, <=44.1.1; python_version=="2.7"
-setuptools>=39.0.1; python_version>="3.6"
-
-wheel
-
 pyparsing==2.4.7; python_version=="3.6"
-twine
