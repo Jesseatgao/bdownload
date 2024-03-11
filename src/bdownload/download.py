@@ -578,6 +578,7 @@ class BDownloader(object):
                     "resumable": True,
                     "resuming_from_intr": False,  # Are we resuming from keyboard interruption?
                     "download_state": "inprocess",
+                    "future_aborted": False,  # Some `Future` instance(s) raised exception or got cancelled?
                     "cancelled_on_exception": False,
                     "futures": [future1, future2],
                     "tsk_num": 2,  # number of the `ranges` and `futures`
@@ -1303,8 +1304,9 @@ class BDownloader(object):
 
         orig_urls = url.split('\t')  # maybe TAB-separated URLs
         ctx_file = {'length': 0, 'progress': 0, 'last_progress': 0, 'downloaded': 0, 'resumable': False,
-                    'resuming_from_intr': False, 'download_state': self.PENDING, 'cancelled_on_exception': False,
-                    'futures': [], 'tsk_num': 0, 'orig_path_url': orig_path_url, 'urls': {}, 'ranges': {}}
+                    'resuming_from_intr': False, 'download_state': self.PENDING, 'future_aborted': False,
+                    'cancelled_on_exception': False, 'futures': [], 'tsk_num': 0, 'orig_path_url': orig_path_url,
+                    'urls': {}, 'ranges': {}}
 
         active_urls = []
         downloadable = False  # Must have at least one active URL to download the file
@@ -1446,7 +1448,6 @@ class BDownloader(object):
 
             # make the file visible to the world
             self._dl_ctx['alt_files'].append((file_path_name, ctx_file))
-            self._dl_ctx['file_cnt'] += 1
 
         return downloadable, path_url, orig_path_url
 
@@ -1509,6 +1510,8 @@ class BDownloader(object):
                     "file": path_name,
                     "range": req_range
                 }
+
+            self._dl_ctx['file_cnt'] += 1
 
     def _is_all_done(self):
         """Check if all the tasks have completed.
@@ -1651,7 +1654,6 @@ class BDownloader(object):
             _, ctx_file = self._dl_ctx['alt_files'][fi]
             if ctx_file['download_state'] not in self._COMPLETED:
                 ranges_all_done = True
-                future_aborted = False
 
                 fs = ctx_file['futures']
                 fs_num = len(fs)
@@ -1678,7 +1680,7 @@ class BDownloader(object):
                                         ctx_file['urls'][ctx_range['url'][-1]]['succeeded'] -= 1
                                     else:  # exception raised
                                         ctx_range['download_state'] = self.FAILED
-                                        future_aborted = True
+                                        ctx_file['future_aborted'] = True
 
                                         if not (self.cancelled_on_interrupt or ctx_file['cancelled_on_exception']):
                                             # Cancel the download of the failed file
@@ -1688,7 +1690,7 @@ class BDownloader(object):
                                             ctx_file['cancelled_on_exception'] = True
                                 except CancelledError:
                                     ctx_range['download_state'] = self.CANCELLED
-                                    future_aborted = True
+                                    ctx_file['future_aborted'] = True
                         else:
                             ranges_all_done = False
                 else:
@@ -1697,7 +1699,7 @@ class BDownloader(object):
                 if ranges_all_done:
                     the_file = ctx_file['path_url'][0]
 
-                    if not future_aborted:
+                    if not ctx_file['future_aborted']:
                         ctx_file['download_state'] = self.SUCCEEDED
                         self.succeeded_downloads_in_running.append(ctx_file['orig_path_url'])
 
@@ -1892,7 +1894,8 @@ class BDownloader(object):
             the raised and cancelled ones.
         """
         self.all_submitted = True
-        if self.active_downloads_added:
+
+        if not self.all_done and self.mgmnt_thread and self.mgmnt_thread.is_alive():
             wait4all = self._wait_py3 if _py3plus else self._wait_py2
             wait4all()
 
@@ -1909,9 +1912,7 @@ class BDownloader(object):
         Returns:
             tuple of list: Same as that returned by :meth:`wait_for_all`.
         """
-        if not self.all_submitted:
-            self._logger.warning('All the downloads may not have been submitted!')
-
+        if not self.all_done:
             return self.wait_for_all()
 
         return self._result()
@@ -1922,6 +1923,9 @@ class BDownloader(object):
         Returns:
             int: 0 for success, and -1 failure.
         """
+        if not self.all_done:
+            self.wait_for_all()
+
         added = len(self._dl_ctx['orig_path_urls'])
         succeeded = len(self.succeeded_downloads_on_addition) + len(self.succeeded_downloads_in_running)
 
@@ -1947,9 +1951,7 @@ class BDownloader(object):
         Returns:
             None.
         """
-        if not self.all_submitted:
-            self._logger.warning('All the downloads may not have been submitted!')
-
+        if not self.all_done:
             self.wait_for_all()
 
         # actual `close` starts here
