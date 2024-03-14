@@ -272,6 +272,8 @@ class RequestsSessionWrapper(Session):
         Raises:
             :class:`BDownloaderException`: Raised when the termination or cancellation flag has been set, for example,
                 if :attr:`RequestsSessionWrapper.requester_cb` is initialized to :meth:`BDownloader.raise_on_interrupted`.
+            ``requests.RequestException``: Raised when any of ``requests``'s exceptions occurred or bad status codes were
+                received and retries have been exhausted.
             ExceptionByRequesterCB: Same exception(s) as that raised by :attr:`RequestsSessionWrapper.requester_cb`, if any.
         """
         if self.requester_cb:
@@ -279,7 +281,7 @@ class RequestsSessionWrapper(Session):
 
         kwargs.setdefault('timeout', self.timeout)
 
-        if self.referrer and self.referrer == '*':
+        if self.referrer == '*':
             self.headers.update({'Referer': url})
 
         return super(RequestsSessionWrapper, self).get(url, **kwargs)
@@ -330,7 +332,7 @@ def requests_retry_session(builtin_retries=None, backoff_factor=0.1, status_forc
     Args:
         builtin_retries (int): Maximum number of retry attempts allowed on errors and interested status codes, which will
             apply to the retry logic of the underlying ``urllib3``. If set to `None` or ``0``, it will default to
-            :const:`URLLIB3_RETRIES_ON_EXCEPTION`.
+            :const:`URLLIB3_BUILTIN_RETRIES_ON_EXCEPTION`.
         backoff_factor (float): The backoff factor to apply between retries.
         status_forcelist (set of int): A set of HTTP status codes that a retry should be enforced on. The default status
             forcelist shall be :const:`URLLIB3_RETRY_STATUS_CODES` if not given.

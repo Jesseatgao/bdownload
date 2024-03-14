@@ -16,3 +16,11 @@ bdownload.cli module
     :members:
     :undoc-members:
     :show-inheritance:
+
+bdownload.utils module
+----------------------
+
+.. automodule:: bdownload.utils
+    :members:
+    :undoc-members:
+    :show-inheritance:

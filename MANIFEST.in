@@ -4,6 +4,7 @@ graft third_parties
 graft docs
 
 include requirements.txt
+include .readthedocs.yaml
 include .travis.yml
 include tox.ini
 

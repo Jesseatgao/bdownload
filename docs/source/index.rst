@@ -18,7 +18,7 @@ Installation
 
 .. admonition:: Notes
 
-    **For Python2.7**:  Since the version of 2022.5.18, `certifi` has dropped the support for Python2.x. To upgrade to
+    **For Python2.7**:  Since the version of 2022.5.18, ``certifi`` has dropped the support for Python2.x. To upgrade to
     the latest CA certificates bundle after installation, simply run:
 
         ``$ bdownload-upd-cacert-py2``

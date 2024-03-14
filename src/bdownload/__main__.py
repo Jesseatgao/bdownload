@@ -12,6 +12,5 @@ if __package__ is None and not hasattr(sys, 'frozen'):
 
 from bdownload.cli import main
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
-

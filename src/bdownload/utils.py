@@ -55,18 +55,32 @@ def _update_local_cacert_ver(new_ver):
 
 
 def get_latest_tag_github(owner, repo, key, **kwargs):
+    """Get the latest tag/version of a GitHub repository.
+
+    Args:
+        owner (str): The account owner of the repository.
+        repo (str): The name of the repository.
+        key (func): A function for extracting comparison key from each tag/version.
+        **kwargs: Same arguments as that of :meth:`bdownload.download.RequestsSessionWrapper.__init__()`.
+
+    Returns:
+        str: The name of the latest tag.
+
+    Raises:
+        exception: Same exception as that raised by :meth:`bdownload.download.RequestsSessionWrapper.get()`.
+    """
     rest_api = 'https://api.github.com/repos/%(owner)s/%(repo)s/tags' % {'owner': owner, 'repo': repo}
-    header = {'Accept': 'application/vnd.github.v3+json'}
+    headers = {'Accept': 'application/vnd.github.v3+json'}
     requester = requests_retry_session(**kwargs)
 
     try:
-        r = requester.get(rest_api, headers=header)
-        r.raise_for_status()
+        r = requester.get(rest_api, headers=headers)
         tags = r.json()
         max_tag = max(tags, key=key)
         return max_tag['name']
     except Exception as e:
-        raise Exception("Error while fetching '%s/%s's latest tag: '%s'" % (owner, repo, str(e)))
+        print("Error while fetching '%s/%s's latest tag: '%s'" % (owner, repo, str(e)))
+        raise
 
 
 def _key(tag):
@@ -119,6 +133,8 @@ def _arg_parser():
 
 
 def update_cacert():
+    """Update ``certifi`` to the latest version of certificate authority (CA) bundle on Python2.7.
+    """
     if _py3plus:
         print("This utility only supports updating the CA bundle on Python2. For Python3, please run 'pip install -U certifi' to update it instead.")
         sys.exit(-1)
@@ -147,7 +163,7 @@ def update_cacert():
 
             print("The certifi CA bundle has been successfully updated to version '%s'." % latest_ver)
         else:
-            print("The certifi CA bundle has already been the latest (%s), so there is nothing to do." % local_ver)
+            print("The certifi CA bundle has already been the latest (%s), so there is nothing left to do." % local_ver)
             sys.exit(-1)
     except Exception as e:
         print("Updating the certifi CA bundle has failed: '%s'" % str(e))
