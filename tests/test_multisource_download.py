@@ -26,11 +26,11 @@ FILES = [
                 "sha1": "84866f6c637042297eda09cdd4fed35118c4f507"
             },
             {
-                "file": "eclipse_3.8.1.orig.tar.xz",
-                "url": "http://ftp.us.debian.org/debian/pool/main/e/eclipse/eclipse_3.8.1.orig.tar.xz	"
-                       "http://debian-archive.trafficmanager.net/debian/pool/main/e/eclipse/eclipse_3.8.1.orig.tar.xz\t"
-                       "http://ftp.uk.debian.org/debian/pool/main/e/eclipse/eclipse_3.8.1.orig.tar.xz",
-                "sha1": "9b8bb069eea91ac7f1b7a3295803056e50e31fa1"
+                "file": "eclipse-cdt_9.9.0.orig.tar.xz",
+                "url": "http://ftp.us.debian.org/debian/pool/main/e/eclipse-cdt/eclipse-cdt_9.9.0.orig.tar.xz	"
+                       "http://debian-archive.trafficmanager.net/debian/pool/main/e/eclipse-cdt/eclipse-cdt_9.9.0.orig.tar.xz\t"
+                       "http://ftp.uk.debian.org/debian/pool/main/e/eclipse-cdt/eclipse-cdt_9.9.0.orig.tar.xz",
+                "sha1": "108cfea1b876beb95ab73f2c5a947659f38115b6"
             }
         ]
 

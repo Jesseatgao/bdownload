@@ -13,7 +13,7 @@ FILES = [
             {
                 "file": "gdb-9.2.tar.xz",
                 "url": r"https://mirrors.kernel.org/gnu/gdb/gdb-9.2.tar.xz	"
-                       r"https://mirror.sergal.org/gnu/gdb/gdb-9.2.tar.xz\t"
+                       r"https://ftp.gnu.org/gnu/gdb/gdb-9.2.tar.xz\t"
                        r"https://mirror.ibcp.fr/pub/gnu/gdb/gdb-9.2.tar.xz",
                 "sha1": "356ee474a24bfb2f133894730916557dfea9da2e"
             }
