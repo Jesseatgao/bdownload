@@ -60,10 +60,10 @@ if not _py3plus:
 # Default retry configuration
 
 #: int: Default number of retries factor for :data:`_requests_extended_retries_factor`.
-REQUESTS_EXTENDED_RETRIES_FACTOR = 3
+REQUESTS_EXTENDED_RETRIES_FACTOR = 1
 
 #: int: Default number of retries on exception set through ``urllib3``'s `Retry` mechanism.
-URLLIB3_BUILTIN_RETRIES_ON_EXCEPTION = 3
+URLLIB3_BUILTIN_RETRIES_ON_EXCEPTION = 1
 
 #: int: Default number of retries on exceptions raised while streaming the request content.
 REQUESTS_RETRIES_ON_STREAM_EXCEPTION = 10
@@ -152,7 +152,7 @@ def retry_requests(exceptions, backoff_factor=0.1, logger=None):
         status codes.
 
     References:
-         [1] http://www.saltycrane.com/blog/2009/11/trying-out-retry-decorator-python/
+         [1] https://www.saltycrane.com/blog/2009/11/trying-out-retry-decorator-python/
 
          [2] https://en.wikipedia.org/wiki/Exponential_backoff
     """
@@ -633,7 +633,7 @@ class BDownloader(object):
     SUCCEEDED = 'succeeded'  # finished without error
     CANCELLED = 'cancelled'  # aborted without being processed
 
-    _COMPLETED = [FAILED, CANCELLED, SUCCEEDED]
+    _COMPLETED = {FAILED, CANCELLED, SUCCEEDED}
 
     _FILE_STATES = [PENDING, INPROCESS, FAILED, CANCELLED, SUCCEEDED]
     _RANGE_STATES = [PENDING, INPROCESS, FAILED, CANCELLED, SUCCEEDED]
@@ -643,7 +643,7 @@ class BDownloader(object):
     PROGRESS_BS_BAR = 'bar'
     PROGRESS_BS_NONE = 'none'
 
-    _PROGRESS_BAR_STYLES = [PROGRESS_BS_MILL, PROGRESS_BS_BAR, PROGRESS_BS_NONE]
+    _PROGRESS_BAR_STYLES = {PROGRESS_BS_MILL, PROGRESS_BS_BAR, PROGRESS_BS_NONE}
 
     # Default value for `max_workers`
     _MAX_WORKERS = (_cpu_count() or 1) * 5  # In line with `futures`
@@ -665,10 +665,11 @@ class BDownloader(object):
         self.close()
         return False
 
-    def __init__(self, max_workers=None, min_split_size=1024*1024, chunk_size=1024*100, proxy=None, cookies=None,
-                 user_agent=None, logger=None, progress='mill', num_pools=20, pool_maxsize=20, request_timeout=None,
-                 request_retries=None, status_forcelist=None, resumption_retries=None, continuation=True, referrer=None,
-                 check_certificate=True, ca_certificate=None, certificate=None):
+    def __init__(self, max_workers=None, max_parallel_downloads=5, workers_per_download=4, min_split_size=1024*1024,
+                 chunk_size=1024*100, proxy=None, cookies=None, user_agent=None, logger=None, progress='mill',
+                 num_pools=20, pool_maxsize=20, request_timeout=None, request_retries=None, status_forcelist=None,
+                 resumption_retries=None, continuation=True, referrer=None, check_certificate=True, ca_certificate=None,
+                 certificate=None):
         """Create and initialize a :class:`BDownloader` object.
 
         Args:
@@ -755,8 +756,10 @@ class BDownloader(object):
                                                 status_forcelist=status_forcelist,
                                                 num_pools=num_pools, pool_maxsize=pool_maxsize)
 
-        self.executor = ThreadPoolExecutor(max_workers)
-        self.max_workers = max_workers or self._MAX_WORKERS
+        self.max_parallel_downloads = max_parallel_downloads
+        self.workers_per_download = workers_per_download
+        self.max_workers = max_workers or max(self._MAX_WORKERS, self.max_parallel_downloads * self.workers_per_download)
+        self.executor = ThreadPoolExecutor(self.max_workers)
 
         self.progress_thread = None
         self.mgmnt_thread = None
@@ -770,8 +773,9 @@ class BDownloader(object):
         self.cancelled_on_interrupt = False
         self.stop = False  # Flag signaling waiting threads to exit
         # The download context that maintains the status of the downloading files and the corresponding chunks
-        self._dl_ctx = {"total_size": 0, "accurate": True, "orig_path_urls": [],
-                        "file_cnt": 0, "alt_files": [], "files": {}, "futures": {}}
+        self._dl_ctx = {'total_size': 0, 'accurate': True, 'orig_path_urls': [], 'file_cnt': 0, 'files': {},
+                        'alt_files': [], 'active_files': [], 'next_download': 0, 'active_downloads': 0, 'poll_changed': True,
+                        'futures': {}}
 
         # list: A downloadable subset of all the `(path, url)`\ s that were passed to :meth:`BDownloader.download` or
         # :meth:`BDownloader.downloads`.
@@ -1308,47 +1312,44 @@ class BDownloader(object):
         ctx_file = {'length': 0, 'progress': 0, 'last_progress': 0, 'downloaded': 0, 'resumable': False,
                     'resuming_from_intr': False, 'download_state': self.PENDING, 'future_aborted': False,
                     'cancelled_on_exception': False, 'futures': [], 'tsk_num': 0, 'orig_path_url': orig_path_url,
-                    'urls': {}, 'ranges': {}}
+                    'urls': {}, 'ranges': {}, 'alt_ranges': [], 'worker_ranges': [], 'ranges_succeeded': 0, 'active_workers': 0}
 
         active_urls = []
         downloadable = False  # Must have at least one active URL to download the file
         for mirror_url in orig_urls:
             try:
-                r = self.requester.get(mirror_url, allow_redirects=True, stream=True)
-                if r.status_code == requests.codes.ok:
-                    file_len = int(r.headers.get('Content-Length', 0))
-                    if file_len:
-                        if not ctx_file['length']:
-                            ctx_file['length'] = file_len
-                        else:
-                            if file_len != ctx_file['length']:
-                                self._logger.error("Error: the size of the file '%s' obtained from '%s' happened to "
-                                                   "mismatch with that from others, download will continue but the "
-                                                   "downloaded file may not be the intended one", file_name, mirror_url)
+                with self.requester.get(mirror_url, allow_redirects=True, stream=True) as r:
+                    if r.status_code == requests.codes.ok:
+                        file_len = int(r.headers.get('Content-Length', 0))
+                        if file_len:
+                            if not ctx_file['length']:
+                                ctx_file['length'] = file_len
+                            else:
+                                if file_len != ctx_file['length']:
+                                    self._logger.error("Error: the size of the file '%s' obtained from '%s' happened to "
+                                                       "mismatch with that from others, download will continue but the "
+                                                       "downloaded file may not be the intended one", file_name, mirror_url)
 
-                                r.close()
-                                continue
+                                    continue
 
-                    ctx_url = ctx_file['urls'][mirror_url] = {'accept_ranges': "none", 'refcnt': 0, 'interrupted': 0,
-                                                              'succeeded': 0}
+                        ctx_url = ctx_file['urls'][mirror_url] = {'accept_ranges': "none", 'refcnt': 0, 'interrupted': 0,
+                                                                  'succeeded': 0}
 
-                    accept_ranges = r.headers.get('Accept-Ranges')
-                    if "bytes" == accept_ranges:
-                        ctx_url['accept_ranges'] = accept_ranges
-                        ctx_file['resumable'] = True
+                        accept_ranges = r.headers.get('Accept-Ranges')
+                        if "bytes" == accept_ranges:
+                            ctx_url['accept_ranges'] = accept_ranges
+                            ctx_file['resumable'] = True
 
-                    if not file_name:
-                        content_disposition = r.headers.get('Content-Disposition')
-                        if content_disposition:
-                            file_name = self._get_fname_from_hdr(content_disposition)
+                        if not file_name:
+                            content_disposition = r.headers.get('Content-Disposition')
+                            if content_disposition:
+                                file_name = self._get_fname_from_hdr(content_disposition)
 
-                    downloadable = True
-                    active_urls.append(mirror_url)
-                else:
-                    self._logger.warning("Unexpected status code %d: trying to determine the size of the file '%s' "
-                                         "using '%s'", r.status_code, file_name, mirror_url)
-
-                r.close()
+                        downloadable = True
+                        active_urls.append(mirror_url)
+                    else:
+                        self._logger.warning("Unexpected status code %d: trying to determine the size of the file '%s' "
+                                             "using '%s'", r.status_code, file_name, mirror_url)
             except requests.RequestException as e:
                 self._logger.error("Error while trying to determine the size of the file '%s' using '%s': '%r'",
                                    file_name, mirror_url, e)
@@ -1448,8 +1449,12 @@ class BDownloader(object):
                     ctx_range['url'] = next(iter_url)
                     ctx_range['alt_urls'] = {}
 
+            ctx_file['alt_ranges'] = [(req_range, ctx_range) for req_range, ctx_range in ctx_file['ranges'].items()]
+            ctx_file['alt_ranges'].reverse()  # To pop from the range stack and download from the beginning of the file
+
             # make the file visible to the world
             self._dl_ctx['alt_files'].append((file_path_name, ctx_file))
+            self._dl_ctx['file_cnt'] += 1
 
         return downloadable, path_url, orig_path_url
 
@@ -1622,10 +1627,13 @@ class BDownloader(object):
             self._logger.error("Error while operating on '%s': 'Error number %d: %s'", e.filename, e.errno, e.strerror)
 
     def _cancel_all_on_interrupted(self):
-        """Cancel all the downloading tasks when receiving the ``SIGINT`` signal or the QUIT command."""
+        """Cancel all the pending tasks when receiving the ``SIGINT`` signal or the QUIT command."""
         if self.all_submitted and not self.cancelled_on_interrupt:
-            for f in self._dl_ctx['futures']:
-                f.cancel()
+            for fi in range(self._dl_ctx['next_download'], self._dl_ctx['file_cnt']):
+                the_file, ctx_file = self._dl_ctx['alt_files'][fi]
+                ctx_file['download_state'] = self.CANCELLED
+                self._on_cancelled(the_file, ctx_file)
+                self.failed_downloads_in_running.append(ctx_file['orig_path_url'])
 
             self.cancelled_on_interrupt = True
             self._logger.warning("The user terminated the downloads %s!",
@@ -1639,6 +1647,61 @@ class BDownloader(object):
             elif ctx_file['download_state'] == self.PENDING:
                 self._on_cancelled(the_file, ctx_file)
 
+    def _schedule_dl_tasks(self, path_name, num_tasks):
+        worker_ranges = []
+        ctx_file = self._dl_ctx['files'][path_name]
+
+        if len(ctx_file['ranges']) > 1:
+            tsk = self._get_remote_file_multipart
+        else:
+            tsk = self._get_remote_file_singlewhole
+
+        while ctx_file['alt_ranges'] and len(worker_ranges) < num_tasks:
+            req_range, ctx_range = ctx_file['alt_ranges'].pop()
+            future = self.executor.submit(tsk, path_name, req_range)
+            ctx_range['future'] = future
+            ctx_range['start_time'] = time.time()
+
+            worker_ranges.append((req_range, ctx_range))
+
+        return worker_ranges
+
+    def _schedule_files_downloads(self):
+        active_files = []
+
+        for the_file, ctx_file in self._dl_ctx['active_files']:
+            if ctx_file['download_state'] not in self._COMPLETED:
+                active_files.append((the_file, ctx_file))
+            else:
+                self._dl_ctx['active_downloads'] -= 1
+
+        while self._dl_ctx['active_downloads'] < self.max_parallel_downloads and self._dl_ctx['next_download'] < self._dl_ctx['file_cnt']:
+            the_file, ctx_file = self._dl_ctx['alt_files'][self._dl_ctx['next_download']]
+            ctx_file['worker_ranges'] = self._schedule_dl_tasks(the_file, self.workers_per_download)
+            ctx_file['active_workers'] = len(ctx_file['worker_ranges'])
+
+            active_files.append((the_file, ctx_file))
+            self._dl_ctx['active_downloads'] += 1
+            self._dl_ctx['next_download'] += 1
+
+        self._dl_ctx['active_files'] = active_files
+
+    def _schedule_file_download(self, the_file, ctx_file):
+        worker_ranges, raised_ranges = [], []
+
+        for req_range, ctx_range in ctx_file['worker_ranges']:
+            if ctx_range['download_state'] not in self._COMPLETED:
+                worker_ranges.append((req_range, ctx_range))
+            elif ctx_range['download_state'] == self.FAILED:
+                ctx_range['download_state'] = self.PENDING
+                ctx_range['future'] = None
+                raised_ranges.append((req_range, ctx_range))
+
+        ctx_file['alt_ranges'] += raised_ranges
+
+        worker_ranges += self._schedule_dl_tasks(the_file, ctx_file['active_workers'] - len(worker_ranges))
+        ctx_file['worker_ranges'] = worker_ranges
+
     def _state_mgmnt(self):
         """Perform the state-related operations of file downloading.
 
@@ -1648,73 +1711,59 @@ class BDownloader(object):
         Returns:
             None.
         """
-        # Cancel the downloading tasks repeatedly on the downloading queue when interrupted
-        if self.sigint or self.cmdquit:
+        if not (self.sigint or self.cmdquit):
+            # Assign new file-level downloads and submit their initial range tasks to the thread pool when current downloads' state changed
+            if self._dl_ctx['poll_changed']:
+                self._schedule_files_downloads()
+                self._dl_ctx['poll_changed'] = False
+        else:
+            # Cancel the pending tasks on the downloading queue when interrupted
             self._cancel_all_on_interrupted()
 
-        for fi in range(self._dl_ctx['file_cnt']):
-            _, ctx_file = self._dl_ctx['alt_files'][fi]
-            if ctx_file['download_state'] not in self._COMPLETED:
-                ranges_all_done = True
+        for the_file, ctx_file in self._dl_ctx['active_files']:
+            ranges_have_dones = False
 
-                fs = ctx_file['futures']
-                fs_num = len(fs)
-                tsk_num = ctx_file['tsk_num']
-                if fs_num == tsk_num:  # Make sure that all the tasks of the file have been submitted
-                    for ctx_range in ctx_file['ranges'].values():
-                        future = ctx_range['future']
-                        if future.done():
-                            if ctx_range['download_state'] not in self._COMPLETED:
-                                ctx_file['downloaded'] += ctx_range['offset']
+            for _, ctx_range in ctx_file['worker_ranges']:
+                future = ctx_range['future']
+                if future.done():
+                    ranges_have_dones = True
+                    ctx_file['downloaded'] += ctx_range['offset']
 
-                                try:
-                                    exception = future.exception()
-                                    if exception is None:
-                                        ctx_range['download_state'] = self.SUCCEEDED
-                                        ctx_file['progress'] += ctx_range['offset']
+                    try:
+                        exception = future.exception()
+                        if exception is None:
+                            ctx_range['download_state'] = self.SUCCEEDED
+                            ctx_file['ranges_succeeded'] += 1
+                            ctx_file['progress'] += ctx_range['offset']
 
-                                        # Accumulate the download statistics of the source URLs
-                                        for url, ctx_url_range in ctx_range['alt_urls'].items():
-                                            ctx_url_file = ctx_file['urls'][url]
-                                            ctx_url_file['refcnt'] += ctx_url_range.get('refcnt', 0)
-                                            ctx_url_file['interrupted'] += ctx_url_range.get('interrupted', 0)
-                                        # use MINUS for ease of multi-level sorting
-                                        ctx_file['urls'][ctx_range['url'][-1]]['succeeded'] -= 1
-                                    else:  # exception raised
-                                        ctx_range['download_state'] = self.FAILED
-                                        ctx_file['future_aborted'] = True
+                            # Accumulate the download statistics of the source URLs
+                            for url, ctx_url_range in ctx_range['alt_urls'].items():
+                                ctx_url_file = ctx_file['urls'][url]
+                                ctx_url_file['refcnt'] += ctx_url_range.get('refcnt', 0)
+                                ctx_url_file['interrupted'] += ctx_url_range.get('interrupted', 0)
+                            # use MINUS for ease of multi-level sorting
+                            ctx_file['urls'][ctx_range['url'][-1]]['succeeded'] -= 1
+                        else:  # exception raised
+                            ctx_range['download_state'] = self.FAILED
+                            ctx_file['active_workers'] -= 1
+                    except CancelledError:
+                        # could not reach here
+                        ctx_range['download_state'] = self.CANCELLED
 
-                                        if not (self.cancelled_on_interrupt or ctx_file['cancelled_on_exception']):
-                                            # Cancel the download of the failed file
-                                            for f in fs:
-                                                f.cancel()
+            if ctx_file['ranges_succeeded'] == len(ctx_file['ranges']):
+                ctx_file['download_state'] = self.SUCCEEDED
+                self._dl_ctx['poll_changed'] = True
 
-                                            ctx_file['cancelled_on_exception'] = True
-                                except CancelledError:
-                                    ctx_range['download_state'] = self.CANCELLED
-                                    ctx_file['future_aborted'] = True
-                        else:
-                            ranges_all_done = False
-                else:
-                    ranges_all_done = False
+                self.succeeded_downloads_in_running.append(ctx_file['orig_path_url'])
+                self._on_succeeded(the_file, ctx_file)
+            elif ctx_file['active_workers'] == 0:
+                ctx_file['download_state'] = self.FAILED
+                self._dl_ctx['poll_changed'] = True
 
-                if ranges_all_done:
-                    the_file = ctx_file['path_url'][0]
-
-                    if not ctx_file['future_aborted']:
-                        ctx_file['download_state'] = self.SUCCEEDED
-                        self.succeeded_downloads_in_running.append(ctx_file['orig_path_url'])
-
-                        self._on_succeeded(the_file, ctx_file)
-                    else:
-                        if ctx_file['download_state'] != self.PENDING:
-                            ctx_file['download_state'] = self.FAILED
-                            self._on_failed(the_file, ctx_file)
-                        else:
-                            ctx_file['download_state'] = self.CANCELLED
-                            self._on_cancelled(the_file, ctx_file)
-
-                        self.failed_downloads_in_running.append(ctx_file['orig_path_url'])
+                self.failed_downloads_in_running.append(ctx_file['orig_path_url'])
+                self._on_failed(the_file, ctx_file)
+            elif ranges_have_dones:
+                self._schedule_file_download(the_file, ctx_file)
 
     def _mgmnt_task(self):
         """The management thread body.
@@ -1743,7 +1792,7 @@ class BDownloader(object):
             int: The size in bytes of the downloaded pieces.
         """
         completed = 0
-        for fi in range(self._dl_ctx['file_cnt']):
+        for fi in range(self._dl_ctx['next_download']):
             _, ctx_file = self._dl_ctx['alt_files'][fi]
             if ctx_file['download_state'] not in self._COMPLETED:
                 completed += ctx_file['last_progress']
@@ -1832,7 +1881,7 @@ class BDownloader(object):
                     self.mgmnt_thread = threading.Thread(target=self._mgmnt_task)
                     self.mgmnt_thread.start()
 
-                self._submit_dl_tasks(active)
+                # self._submit_dl_tasks(active)
                 self.active_downloads_added.extend(active_orig)
 
             if existing_orig:
