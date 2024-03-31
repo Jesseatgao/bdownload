@@ -436,8 +436,8 @@ bdownload      url | -L URLS [URLS ...]
     bdownload https://www.afilelink.com/afile.tar.gz
     bdownload -O /abspath/to/afile.tar.gz https://www.afilelink.com/afile.tar.gz
     bdownload -O /abspath/to/a/dir/ https://www.afilelink.com/afile.tar.gz
-    bdownload -O /abspath/to/afile.tar.gz https://www.afilelink.com/afile.tar.gz\thttps://nianpei.bpfatran.com/afile.tar.gz
+    bdownload -O /abspath/to/afile.tar.gz "https://www.afilelink.com/afile.tar.gz\thttps://nianpei.bpfatran.com/afile.tar.gz"
     bdownload -D path/to/working_dir/ -O relpath/to/working_dir/alias_afile.tar.gz https://www.afilelink.com/afile.tar.gz
     bdownload -D path/to/working/dir https://www.afilelink.com/afile.tar.gz
-    bdownload -o /abspath/to/file1.zip ~/file2.tgz -L http://foo.cc/file1.zip http://bar.cc/file2.tgz\thttp://bar2.cc/file2.tgz
-    bdownload -D path/to/working/dir -L http://foo.cc/file1.zip http://bar.cc/file2.tgz\thttp://bar2.cc/file2.tgz
+    bdownload -o /abspath/to/file1.zip ~/file2.tgz -L "http://foo.cc/file1.zip" "http://bar.cc/file2.tgz\thttp://bar2.cc/file2.tgz"
+    bdownload -D path/to/working/dir -L "http://foo.cc/file1.zip" "http://bar.cc/file2.tgz\thttp://bar2.cc/file2.tgz"

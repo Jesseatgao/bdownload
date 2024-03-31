@@ -774,7 +774,7 @@ class BDownloader(object):
         self.stop = False  # Flag signaling waiting threads to exit
         # The download context that maintains the status of the downloading files and the corresponding chunks
         self._dl_ctx = {'total_size': 0, 'accurate': True, 'orig_path_urls': [], 'file_cnt': 0, 'files': {},
-                        'alt_files': [], 'active_files': [], 'next_download': 0, 'active_downloads': 0, 'poll_changed': True,
+                        'alt_files': [], 'active_files': [], 'next_download': 0, 'active_downloads': 0, 'poll_changed': False,
                         'futures': {}}
 
         # list: A downloadable subset of all the `(path, url)`\ s that were passed to :meth:`BDownloader.download` or
@@ -1648,6 +1648,15 @@ class BDownloader(object):
                 self._on_cancelled(the_file, ctx_file)
 
     def _schedule_dl_tasks(self, path_name, num_tasks):
+        """Arrange the range downloading tasks of the file and assign them to the thread pool executor.
+
+        Args:
+            path_name (str): The full path name of the file being scheduled for.
+            num_tasks (int): The number of the range tasks requested to allocate.
+
+        Returns:
+            list of tuple: The (re-)scheduled range tasks and their corresponding download contexts.
+        """
         worker_ranges = []
         ctx_file = self._dl_ctx['files'][path_name]
 
@@ -1667,6 +1676,7 @@ class BDownloader(object):
         return worker_ranges
 
     def _schedule_files_downloads(self):
+        """Remove the completed tasks from the files downloading queue and submit new file task assignments."""
         active_files = []
 
         for the_file, ctx_file in self._dl_ctx['active_files']:
@@ -1687,6 +1697,7 @@ class BDownloader(object):
         self._dl_ctx['active_files'] = active_files
 
     def _schedule_file_download(self, the_file, ctx_file):
+        """Remove the succeeded range tasks, reassign the failed and arrange new for the file downloading."""
         worker_ranges, raised_ranges = [], []
 
         for req_range, ctx_range in ctx_file['worker_ranges']:
@@ -1713,7 +1724,8 @@ class BDownloader(object):
         """
         if not (self.sigint or self.cmdquit):
             # Assign new file-level downloads and submit their initial range tasks to the thread pool when current downloads' state changed
-            if self._dl_ctx['poll_changed']:
+            if self._dl_ctx['poll_changed'] or (self._dl_ctx['active_downloads'] < self.max_parallel_downloads and
+                                                self._dl_ctx['next_download'] < self._dl_ctx['file_cnt']):
                 self._schedule_files_downloads()
                 self._dl_ctx['poll_changed'] = False
         else:
