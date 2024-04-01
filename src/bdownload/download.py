@@ -569,6 +569,10 @@ class BDownloader(object):
                 # which don't necessarily correspond to `files` e.g. due to duplicate or interruption
             "file_cnt": 2,  # number of current downloading files
             "alt_files": [("full_path_to_file1", `ctx_file1_obj`), ("full_path_to_file2", `ctx_file2_obj`)],  # flattened `files`
+            "active_files": [("full_path_to_file1", `ctx_file1_obj`)],  # scheduled, in-processing file downloads
+            "active_downloads": 1,  # number of in-processing file downloads
+            "next_download": 1,  # index to the next to schedule to download file
+            "poll_changed": False,  # Have the polled files' states changed?
             "files":{
                 "full_path_to_file1":{
                     "length": 2000,  # 0 means 'unknown', i.e. file size can't be pre-determined through any one of provided URLs
@@ -580,15 +584,16 @@ class BDownloader(object):
                     "resumable": True,
                     "resuming_from_intr": False,  # Are we resuming from keyboard interruption?
                     "download_state": "inprocess",
-                    "future_aborted": False,  # Some `Future` instance(s) raised exception or got cancelled?
                     "cancelled_on_exception": False,
-                    "futures": [future1, future2],
-                    "tsk_num": 2,  # number of the `ranges` and `futures`
                     "orig_path_url": ('file1', 'url1\turl2\turl3'),  # (path, url) as a subparameter passed to :meth:`downloads`
                     "path_url": ('full_path_to_file1', 'url1\turl2\turl3'),  # (full_pathname, active_URLs)
                     "urls":{"url1":{"accept_ranges": "bytes", "refcnt": 1, "interrupted": 2, "succeeded": -5},
                             "url2":{"accept_ranges": "none", "refcnt": 0, "interrupted": 0, "succeeded": 0},
                             "url3":{"accept_ranges": "bytes", "refcnt": 1, "interrupted": 0, "succeeded": -2}},
+                    "alt_ranges": [("bytes=1000-1999", `ctx_range2_obj`)],
+                    "worker_ranges": [("bytes=0-999", `ctx_range1_obj`)],  # active range downloading tasks
+                    "active_workers": 1,  # number of active worker threads on ranges downloading of the file
+                    "ranges_succeeded": 0,  # number of ranges successfully downloaded
                     "ranges":{
                         "bytes=0-999": {
                             "start": 0,  # start byte position
@@ -616,10 +621,6 @@ class BDownloader(object):
                 },
                 "full_path_to_file2":{
                 }
-            },
-            "futures": {
-                future1: {"file": "full_path_to_file1", "range": "bytes=0-999"},
-                future2: {"file": "full_path_to_file1", "range": "bytes=1000-1999"}
             }
         }
     """
@@ -758,7 +759,9 @@ class BDownloader(object):
 
         self.max_parallel_downloads = max_parallel_downloads
         self.workers_per_download = workers_per_download
-        self.max_workers = max_workers or max(self._MAX_WORKERS, self.max_parallel_downloads * self.workers_per_download)
+        if max_workers is None:
+            max_workers = self._MAX_WORKERS
+        self.max_workers = max(max_workers, self.max_parallel_downloads * self.workers_per_download)
         self.executor = ThreadPoolExecutor(self.max_workers)
 
         self.progress_thread = None
@@ -774,8 +777,7 @@ class BDownloader(object):
         self.stop = False  # Flag signaling waiting threads to exit
         # The download context that maintains the status of the downloading files and the corresponding chunks
         self._dl_ctx = {'total_size': 0, 'accurate': True, 'orig_path_urls': [], 'file_cnt': 0, 'files': {},
-                        'alt_files': [], 'active_files': [], 'next_download': 0, 'active_downloads': 0, 'poll_changed': False,
-                        'futures': {}}
+                        'alt_files': [], 'active_files': [], 'next_download': 0, 'active_downloads': 0, 'poll_changed': False}
 
         # list: A downloadable subset of all the `(path, url)`\ s that were passed to :meth:`BDownloader.download` or
         # :meth:`BDownloader.downloads`.
@@ -1310,9 +1312,9 @@ class BDownloader(object):
 
         orig_urls = url.split('\t')  # maybe TAB-separated URLs
         ctx_file = {'length': 0, 'progress': 0, 'last_progress': 0, 'downloaded': 0, 'resumable': False,
-                    'resuming_from_intr': False, 'download_state': self.PENDING, 'future_aborted': False,
-                    'cancelled_on_exception': False, 'futures': [], 'tsk_num': 0, 'orig_path_url': orig_path_url,
-                    'urls': {}, 'ranges': {}, 'alt_ranges': [], 'worker_ranges': [], 'ranges_succeeded': 0, 'active_workers': 0}
+                    'resuming_from_intr': False, 'download_state': self.PENDING, 'cancelled_on_exception': False,
+                    'orig_path_url': orig_path_url, 'path_url': None, 'urls': {}, 'ranges': {}, 'alt_ranges': [],
+                    'worker_ranges': [], 'active_workers': 0, 'ranges_succeeded': 0}
 
         active_urls = []
         downloadable = False  # Must have at least one active URL to download the file
@@ -1428,7 +1430,6 @@ class BDownloader(object):
                 else:
                     ranges = [(0, None)]
 
-                ctx_file['tsk_num'] = len(ranges)  # How many tasks to complete the download job of the file
                 for start, end in ranges:
                     req_range = "bytes={}-{}".format(start, end)
                     ctx_range = ctx_file['ranges'][req_range] = {}
@@ -1443,7 +1444,6 @@ class BDownloader(object):
                         'alt_urls': {}})
             else:
                 ctx_file['ranges'] = resumption_ctx['failed_ranges']
-                ctx_file['tsk_num'] = len(ctx_file['ranges'])
 
                 for ctx_range in ctx_file['ranges'].values():
                     ctx_range['url'] = next(iter_url)
@@ -1489,36 +1489,6 @@ class BDownloader(object):
                 failed_orig.append(orig_path_url)
 
         return active, active_orig, failed, failed_orig, existing, existing_orig
-
-    def _submit_dl_tasks(self, path_urls):
-        """Submit the download tasks of the files to the thread pool.
-
-        Args:
-            path_urls (list of tuple): The meaning and format of the `path_urls` is similar to the parameter for
-                :meth:`downloads`.
-
-        Returns:
-            None.
-        """
-        for path_name, _ in path_urls:
-            ctx_file = self._dl_ctx['files'][path_name]
-
-            if len(ctx_file['ranges']) > 1:
-                tsk = self._get_remote_file_multipart
-            else:
-                tsk = self._get_remote_file_singlewhole
-
-            for req_range, ctx_range in ctx_file['ranges'].items():
-                future = self.executor.submit(tsk, path_name, req_range)
-                ctx_file['futures'].append(future)
-                ctx_range['future'] = future
-                ctx_range['start_time'] = time.time()
-                self._dl_ctx['futures'][future] = {
-                    "file": path_name,
-                    "range": req_range
-                }
-
-            self._dl_ctx['file_cnt'] += 1
 
     def _is_all_done(self):
         """Check if all the tasks have completed.
@@ -1893,7 +1863,6 @@ class BDownloader(object):
                     self.mgmnt_thread = threading.Thread(target=self._mgmnt_task)
                     self.mgmnt_thread.start()
 
-                # self._submit_dl_tasks(active)
                 self.active_downloads_added.extend(active_orig)
 
             if existing_orig:
