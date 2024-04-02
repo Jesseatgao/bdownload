@@ -590,7 +590,7 @@ class BDownloader(object):
                     "urls":{"url1":{"accept_ranges": "bytes", "refcnt": 1, "interrupted": 2, "succeeded": -5},
                             "url2":{"accept_ranges": "none", "refcnt": 0, "interrupted": 0, "succeeded": 0},
                             "url3":{"accept_ranges": "bytes", "refcnt": 1, "interrupted": 0, "succeeded": -2}},
-                    "alt_ranges": [("bytes=1000-1999", `ctx_range2_obj`)],
+                    "alt_ranges": [("bytes=1000-1999", `ctx_range2_obj`)],  # task ranges stack
                     "worker_ranges": [("bytes=0-999", `ctx_range1_obj`)],  # active range downloading tasks
                     "active_workers": 1,  # number of active worker threads on ranges downloading of the file
                     "ranges_succeeded": 0,  # number of ranges successfully downloaded
@@ -676,6 +676,10 @@ class BDownloader(object):
         Args:
             max_workers (int): The `max_workers` parameter specifies the number of the parallel downloading threads,
                 whose default value is determined by ``#num_of_processor * 5`` if set to `None`.
+            max_parallel_downloads (int): `max_parallel_downloads` limits the number of files downloading concurrently.
+                It has a default value of 5.
+            workers_per_download (int): `workers_per_download` sets the maximum number of worker threads for every file
+                downloading job, which defaults to 4.
             min_split_size (int): `min_split_size` denotes the size in bytes of file pieces split to be downloaded
                 in parallel, which defaults to 1024*1024 bytes (i.e. 1MB).
             chunk_size (int): The `chunk_size` parameter specifies the chunk size in bytes of every http range request,
@@ -1425,7 +1429,7 @@ class BDownloader(object):
 
             if not is_resuming:
                 # calculate request ranges
-                if self._is_parallel_downloadable(file_path_name) and self.max_workers > 1:
+                if self._is_parallel_downloadable(file_path_name) and self.workers_per_download > 1:
                     ranges = self.calc_req_ranges(ctx_file['length'], self.min_split_size, 0)
                 else:
                     ranges = [(0, None)]
