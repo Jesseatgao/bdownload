@@ -74,10 +74,16 @@ RETRY_BACKOFF_FACTOR = 0.1
 #: set: Default status codes to retry on intended for the underlying ``urllib3``.
 URLLIB3_RETRY_STATUS_CODES = frozenset([413, 429, 500, 502, 503, 504])
 
-COOKIE_STR_REGEX = re.compile(r'\s*(?:[^,; =]+=[^,; ]+\s*(?:$|\s+|;\s*))+\s*')
-"""A compiled regular expression object used to match the cookie string in the form of key/value pairs.
+COOKIE_STR_REGEX = re.compile(r'^\s*(?:[^,; =]+=[^,; ]+\s*(?:$|\s+|;\s*))+\s*$')
+"""regex: A compiled regular expression object used to match the cookie string in the form of key/value pairs.
 
 See also :meth:`BDownloader.__init__()` for more details about `cookies`.
+"""
+
+HTTP_HEADER_REGEX = re.compile(r'^\s*[a-zA-Z0-9_-]+:\s*[a-zA-Z0-9_ :;.,\\/"\'?!(){}[\]@<>=\-+*#$&`|~^%]*$')
+"""regex: A compiled regular expression object used to validate the HTTP request header in the ``'name: value'`` format.
+
+Refer to https://developers.cloudflare.com/rules/transform/request-header-modification/reference/header-format.
 """
 
 _requests_extended_retries_factor = REQUESTS_EXTENDED_RETRIES_FACTOR
@@ -206,7 +212,7 @@ class RequestsSessionWrapper(Session):
     TIMEOUT = (3.05, 6)
 
     def __init__(self, timeout=None, proxy=None, cookies=None, user_agent=None, referrer=None, verify=True, cert=None,
-                 requester_cb=None):
+                 headers=None, auth=None, requester_cb=None):
         """Initialize the ``Session`` instance.
 
         The HTTP header ``User-Agent`` of the session is set to a default value of `bdownload/VERSION`, if not provided,
@@ -243,13 +249,16 @@ class RequestsSessionWrapper(Session):
         self.timeout = timeout
         self.requester_cb = requester_cb
 
+        if isinstance(headers, dict):
+            self.headers.update(headers)
+
         self.referrer = referrer.strip() if referrer is not None else referrer
         if self.referrer:
-            self.headers.update({'Referer': self.referrer})
+            self.headers.setdefault('Referer', self.referrer)
 
         default_user_agent = 'bdownload/{}'.format(__version__)
         self.user_agent = user_agent if user_agent and user_agent.strip() else default_user_agent
-        self.headers.update({'User-Agent': self.user_agent})
+        self.headers.setdefault('User-Agent', self.user_agent)
 
         if proxy is not None:
             self.proxies = dict(http=proxy, https=proxy)
@@ -257,6 +266,7 @@ class RequestsSessionWrapper(Session):
             self.cookies = cookies if isinstance(cookies, (dict, cookielib.CookieJar)) else self._build_cookiejar_from_kvp(cookies)
         self.verify = verify
         self.cert = cert
+        self.auth = auth
 
     @retry_requests(requests.RequestException, backoff_factor=RETRY_BACKOFF_FACTOR)
     def get(self, url, **kwargs):
@@ -670,7 +680,7 @@ class BDownloader(object):
                  chunk_size=1024*100, proxy=None, cookies=None, user_agent=None, logger=None, progress='mill',
                  num_pools=20, pool_maxsize=20, request_timeout=None, request_retries=None, status_forcelist=None,
                  resumption_retries=None, continuation=True, referrer=None, check_certificate=True, ca_certificate=None,
-                 certificate=None):
+                 certificate=None, auth=None, headers=None):
         """Create and initialize a :class:`BDownloader` object.
 
         Args:
@@ -739,6 +749,12 @@ class BDownloader(object):
                 NB the cert files in the directory each only contain one CA certificate.
             certificate (str or tuple): `certificate` specifies a client certificate. It has the same meaning as that of
                 `cert` in :meth:`requests.request()`.
+            auth (tuple or :class:`requests.auth.AuthBase`): The `auth` parameter sets a (user, pass) tuple or Auth handler
+                to enable Basic/Digest/Custom HTTP Authentication. It will be passed down directly to the attribute `auth`
+                of the underlying :class:`requests.Session` instance.
+            headers(dict): `headers` specifies extra HTTP headers, standard or custom, for use in all of the requests
+                made by the session. The headers take precedence over the ones specified by other parameters, e.g. `user_agent`,
+                if conflict happens.
 
         Raises:
             ValueError: Raised when the `cookies` is of the :obj:`str` type and not in valid format.
@@ -755,7 +771,8 @@ class BDownloader(object):
         verify = ca_certificate if check_certificate and ca_certificate else check_certificate
 
         session = RequestsSessionWrapper(timeout=request_timeout, proxy=proxy, cookies=cookies, user_agent=user_agent,
-                                         referrer=referrer, verify=verify, cert=certificate, requester_cb=self.raise_on_interrupted)
+                                         referrer=referrer, verify=verify, cert=certificate, headers=headers, auth=auth,
+                                         requester_cb=self.raise_on_interrupted)
         self.requester = requests_retry_session(session=session, builtin_retries=request_retries,
                                                 backoff_factor=RETRY_BACKOFF_FACTOR,
                                                 status_forcelist=status_forcelist,

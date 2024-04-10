@@ -53,15 +53,15 @@ Synopsis
 
     bdownload      url | -L URLS [URLS ...]
                    [-O OUTPUT | -o OUTPUT [OUTPUT ...]] [-D DIR]
-                   [-p PROXY] [-n MAX_WORKERS] [-k MIN_SPLIT_SIZE]
-                   [-s CHUNK_SIZE] [-e COOKIE] [--user-agent USER_AGENT]
-                   [--referrer REFERRER]
+                   [-p PROXY] [-n MAX_WORKERS] [-j MAX_PARALLEL_DOWNLOADS]
+                   [-J WORKERS_PER_DOWNLOAD] [-k MIN_SPLIT_SIZE] [-s CHUNK_SIZE]
+                   [-e COOKIE] [--user-agent USER_AGENT] [--referrer REFERRER]
                    [--check-certificate {True,true,TRUE,False,false,FALSE}]
                    [--ca-certificate CA_CERTIFICATE]
                    [--certificate CERTIFICATE] [--private-key PRIVATE_KEY]
                    [-P {mill,bar,none}] [--num-pools NUM_POOLS]
                    [--pool-size POOL_SIZE] [-l {debug,info,warning,error,critical}]
-                   [-c | --no-continue]
+                   [-c | --no-continue] [-H HEADER]
                    [-h]
 
 Description
@@ -97,11 +97,19 @@ Description
 
 ``-p PROXY, --proxy PROXY``
 
-    proxy either in the form of "http://[user:pass@]host:port" or "socks5://[user:pass@]host:port"
+    proxy either in the form of "`http://[user:pass@]host:port`" or "`socks5://[user:pass@]host:port`"
 
 ``-n MAX_WORKERS, --max-workers MAX_WORKERS``
 
     number of worker threads [default: 20]
+
+``-j MAX_PARALLEL_DOWNLOADS, --max-parallel-downloads MAX_PARALLEL_DOWNLOADS``
+
+    number of files downloading concurrently [default: 5]
+
+``-J WORKERS_PER_DOWNLOAD, --workers-per-download WORKERS_PER_DOWNLOAD``
+
+    number of worker threads for every file downloading job [default: 4]
 
 ``-k MIN_SPLIT_SIZE, --min-split-size MIN_SPLIT_SIZE``
 
@@ -114,7 +122,7 @@ Description
 ``-e COOKIE, --cookie COOKIE``
 
     cookies either in the form of a string (maybe whitespace- and/or semicolon- separated)
-    like "cookie_key=cookie_value cookie_key2=cookie_value2; cookie_key3=cookie_value3", or a file,
+    like "`cookie_key=cookie_value cookie_key2=cookie_value2; cookie_key3=cookie_value3`", or a file,
     e.g. named "cookies.txt", in the Netscape cookie file format. NB the option ``-D DIR`` does not apply to the cookie file
 
 ``--user-agent USER_AGENT``
@@ -169,6 +177,12 @@ Description
 
     do not resume from last interruption, i.e. start the download from beginning
 
+``-H HEADER, --header HEADER``
+
+    extra HTTP header, standard or custom, which can be repeated several times, e.g.
+    '`-H "User-Agent: John Doe" -H "X-BD-Key: One Thousand And One Nights"`'.The headers take precedence over the ones
+    specified by other parameters if conflict happens
+
 ``-h, --help``
 
     show help message and exit
@@ -181,15 +195,15 @@ Examples
 
     ``$ bdownload -O /abspath/to/a/dir/ https://www.afilelink.com/afile.tar.gz``
 
-    ``$ bdownload -O /abspath/to/afile.tar.gz https://www.afilelink.com/afile.tar.gz\thttps://nianpei.bpfatran.com/afile.tar.gz``
+    ``$ bdownload -O /abspath/to/afile.tar.gz "https://www.afilelink.com/afile.tar.gz\thttps://nianpei.bpfatran.com/afile.tar.gz"``
 
     ``$ bdownload -D path/to/working_dir/ -O relpath/to/working_dir/alias_afile.tar.gz https://www.afilelink.com/afile.tar.gz``
 
     ``$ bdownload -D path/to/working/dir https://www.afilelink.com/afile.tar.gz``
 
-    ``$ bdownload -o /abspath/to/file1.zip ~/file2.tgz -L http://foo.cc/file1.zip http://bar.cc/file2.tgz\thttp://bar2.cc/file2.tgz``
+    ``$ bdownload -o /abspath/to/file1.zip ~/file2.tgz -L "http://foo.cc/file1.zip" "http://bar.cc/file2.tgz\thttp://bar2.cc/file2.tgz"``
 
-    ``$ bdownload -D path/to/working/dir -L http://foo.cc/file1.zip http://bar.cc/file2.tgz\thttp://bar2.cc/file2.tgz``
+    ``$ bdownload -D path/to/working/dir -L "http://foo.cc/file1.zip" "http://bar.cc/file2.tgz\thttp://bar2.cc/file2.tgz"``
 
 .. _API indices:
 

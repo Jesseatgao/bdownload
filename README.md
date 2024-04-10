@@ -39,16 +39,21 @@ A multi-threaded and multi-source aria2-like batch file downloading library for 
 #### Signatures
 
 `
-class bdownload.BDownloader(max_workers=None, min_split_size=1024*1024, chunk_size=1024*100, proxy=None, cookies=None,
-                            user_agent=None, logger=None, progress='mill', num_pools=20, pool_maxsize=20, request_timeout=None,
-                            request_retries=None, status_forcelist=None, resumption_retries=None, continuation=True, referrer=None,
-                            check_certificate=True, ca_certificate=None, certificate=None)
+class bdownload.BDownloader(max_workers=None, max_parallel_downloads=5, workers_per_download=4, min_split_size=1024*1024,
+                            chunk_size=1024*100, proxy=None, cookies=None, user_agent=None, logger=None, progress='mill',
+                            num_pools=20, pool_maxsize=20, request_timeout=None, request_retries=None, status_forcelist=None,
+                            resumption_retries=None, continuation=True, referrer=None, check_certificate=True, ca_certificate=None,
+                            certificate=None, auth=None, headers=None)
 `
 
     Create and initialize a `BDownloader` object for executing download jobs.
   
   * The `max_workers` parameter specifies the number of the parallel downloading threads, whose default value is 
     determined by _#num_of_processor * 5_ if set to `None`.
+
+  * `max_parallel_downloads` limits the number of files downloading concurrently. It has a default value of 5.
+
+  * `workers_per_download` sets the maximum number of worker threads for every file downloading job, which defaults to 4.
   
   * `min_split_size` denotes the size in bytes of file pieces split to be downloaded in parallel, which defaults to 
     1024*1024 bytes (i.e. 1MB).
@@ -74,7 +79,7 @@ class bdownload.BDownloader(max_workers=None, min_split_size=1024*1024, chunk_si
     `logging.getLogger(__name__)`.
   
   * `progress` determines the style of the progress bar displayed while downloading files. Possible values are `'mill'`,
-    `'bar'` and `'none''`. `'mill'` is the default. To disable this feature, e.g. while scripting or multi-instanced, 
+    `'bar'` and `'none'`. `'mill'` is the default. To disable this feature, e.g. while scripting or multi-instanced, 
     set it to `'none'`.
   
   * The `num_pools` parameter has the same meaning as `num_pools` in `urllib3.PoolManager` and will eventually be passed
@@ -118,6 +123,12 @@ class bdownload.BDownloader(max_workers=None, min_split_size=1024*1024, chunk_si
     supplied with OpenSSL, according to `requests`. NB the cert files in the directory each only contain one CA certificate.
 
   * `certificate` specifies a client certificate. It has the same meaning as that of `cert` in `requests.request()`.
+
+  * The `auth` parameter sets a (user, pass) tuple or Auth handler to enable Basic/Digest/Custom HTTP Authentication. 
+    It will be passed down directly to the attribute `auth` of the underlying :class:`requests.Session` instance.
+
+  * `headers` specifies extra HTTP headers, standard or custom, for use in all of the requests made by the session. 
+    The headers take precedence over the ones specified by other parameters, e.g. `user_agent`, if conflict happens.
 
 `
 BDownloader.downloads(path_urls)
@@ -311,15 +322,15 @@ if __name__ == '__main__':
 ```
 bdownload      url | -L URLS [URLS ...]
                [-O OUTPUT | -o OUTPUT [OUTPUT ...]] [-D DIR]
-               [-p PROXY] [-n MAX_WORKERS] [-k MIN_SPLIT_SIZE]
-               [-s CHUNK_SIZE] [-e COOKIE] [--user-agent USER_AGENT]
-               [--referrer REFERRER]
+               [-p PROXY] [-n MAX_WORKERS] [-j MAX_PARALLEL_DOWNLOADS]
+               [-J WORKERS_PER_DOWNLOAD] [-k MIN_SPLIT_SIZE] [-s CHUNK_SIZE]
+               [-e COOKIE] [--user-agent USER_AGENT] [--referrer REFERRER]
                [--check-certificate {True,true,TRUE,False,false,FALSE}]
                [--ca-certificate CA_CERTIFICATE]
                [--certificate CERTIFICATE] [--private-key PRIVATE_KEY]
                [-P {mill,bar,none}] [--num-pools NUM_POOLS]
                [--pool-size POOL_SIZE] [-l {debug,info,warning,error,critical}]
-               [-c | --no-continue]
+               [-c | --no-continue] [-H HEADER]
                [-h]
 ```
 
@@ -355,11 +366,19 @@ bdownload      url | -L URLS [URLS ...]
 
 `-p PROXY, --proxy PROXY`
 
-    proxy either in the form of "http://[user:pass@]host:port" or "socks5://[user:pass@]host:port"
+    proxy either in the form of "`http://[user:pass@]host:port`" or "`socks5://[user:pass@]host:port`"
 
 `-n MAX_WORKERS, --max-workers MAX_WORKERS`
 
     number of worker threads [default: 20]
+
+`-j MAX_PARALLEL_DOWNLOADS, --max-parallel-downloads MAX_PARALLEL_DOWNLOADS`
+
+    number of files downloading concurrently [default: 5]
+
+`-J WORKERS_PER_DOWNLOAD, --workers-per-download WORKERS_PER_DOWNLOAD`
+
+    number of worker threads for every file downloading job [default: 4]
 
 `-k MIN_SPLIT_SIZE, --min-split-size MIN_SPLIT_SIZE`
 
@@ -372,7 +391,7 @@ bdownload      url | -L URLS [URLS ...]
 `-e COOKIE, --cookie COOKIE`
 
     cookies either in the form of a string (maybe whitespace- and/or semicolon- separated) 
-    like "cookie_key=cookie_value cookie_key2=cookie_value2; cookie_key3=cookie_value3", or a file, 
+    like "`cookie_key=cookie_value cookie_key2=cookie_value2; cookie_key3=cookie_value3`", or a file, 
     e.g. named "cookies.txt", in the Netscape cookie file format. NB the option `-D DIR` does not apply to the cookie file
 
 `--user-agent USER_AGENT`
@@ -426,6 +445,12 @@ bdownload      url | -L URLS [URLS ...]
 `--no-continue`
 
     do not resume from last interruption, i.e. start the download from beginning
+
+`-H HEADER, --header HEADER`
+
+    extra HTTP header, standard or custom, which can be repeated several times, e.g. 
+    '`-H "User-Agent: John Doe" -H "X-BD-Key: One Thousand And One Nights"`'.The headers take precedence over the ones 
+    specified by other parameters if conflict happens
 
 `-h, --help`
 

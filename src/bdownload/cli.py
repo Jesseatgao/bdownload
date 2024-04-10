@@ -18,14 +18,16 @@ import signal
 
 from requests.cookies import cookielib
 
-from .download import BDownloader, COOKIE_STR_REGEX, BDownloaderException
+from .download import BDownloader, BDownloaderException, COOKIE_STR_REGEX, HTTP_HEADER_REGEX
 
 
-DEFAULT_MAX_WORKER = 20         # number of worker threads
-DEFAULT_MIN_SPLIT_SIZE = "1M"   # file split size in bytes[1M = 1024*1024]
-DEFAULT_CHUNK_SIZE = "100K"     # every request range size in bytes[1K = 1024]
-DEFAULT_NUM_POOLS = 20          # number of connection pools
-DEFAULT_POOL_SIZE = 20          # max number of connections in the pool
+DEFAULT_MAX_PARALLEL_DOWNLOADS = 5  # number of files downloading concurrently
+DEFAULT_WORKERS_PER_DOWNLOAD = 4    # number of worker threads for every file downloading job
+DEFAULT_MAX_WORKER = DEFAULT_MAX_PARALLEL_DOWNLOADS * DEFAULT_WORKERS_PER_DOWNLOAD  # number of worker threads
+DEFAULT_MIN_SPLIT_SIZE = "1M"       # file split size in bytes[1M = 1024*1024]
+DEFAULT_CHUNK_SIZE = "100K"         # every request range size in bytes[1K = 1024]
+DEFAULT_NUM_POOLS = 20              # number of connection pools
+DEFAULT_POOL_SIZE = 20              # max number of connections in the pool
 
 
 def _win32_utf8_argv():
@@ -186,6 +188,16 @@ def _load_cookies(cookies):
         return cookies
 
 
+def _validate_http_header(header):
+    """Validate and normalize the HTTP request header."""
+    header = header.strip()
+    if not HTTP_HEADER_REGEX.match(header):
+        msg = 'HTTP header {!r} is not in valid format!'.format(header)
+        raise ArgumentTypeError(msg)
+
+    return header
+
+
 def _arg_parser():
     parser = ArgumentParser()
 
@@ -218,6 +230,12 @@ def _arg_parser():
 
     parser.add_argument('-n', '--max-workers', dest='max_workers', default=DEFAULT_MAX_WORKER, type=int,
                         help='number of worker threads [default: {}]'.format(DEFAULT_MAX_WORKER))
+
+    parser.add_argument('-j', '--max-parallel-downloads', dest='max_parallel_downloads', default=DEFAULT_MAX_PARALLEL_DOWNLOADS, type=int,
+                        help='number of files downloading concurrently [default: {}]'.format(DEFAULT_MAX_PARALLEL_DOWNLOADS))
+
+    parser.add_argument('-J', '--workers-per-download', dest='workers_per_download', default=DEFAULT_WORKERS_PER_DOWNLOAD, type=int,
+                        help='number of worker threads for every file downloading job [default: {}]'.format(DEFAULT_WORKERS_PER_DOWNLOAD))
 
     parser.add_argument('-k', '--min-split-size', dest='min_split_size', default=DEFAULT_MIN_SPLIT_SIZE, type=_normalize_bytes_num,
                         help='file split size in bytes, "1048576, 1024K or 2M" for example [default: {}]'.format(DEFAULT_MIN_SPLIT_SIZE))
@@ -271,6 +289,11 @@ def _arg_parser():
                       help='resume from the partially downloaded files. This is the default behavior')
     cmeg.add_argument('--no-continue', dest='no_continue', action='store_const', const=True,
                       help='do not resume from last interruption, i.e. start the download from beginning')
+
+    parser.add_argument('-H', '--header', dest='header', action='append', type=_validate_http_header,
+                        help='extra HTTP header, standard or custom, which can be repeated several times, '
+                             'e.g. \'-H "User-Agent: John Doe" -H "X-BD-Key: One Thousand And One Nights"\'.'
+                             'The headers take precedence over the ones specified by other parameters if conflict happens.')
 
     return parser
 
@@ -352,6 +375,9 @@ def main():
     check_certificate = True if args.check_certificate.lower() == 'true' else False
     client_certificate = (args.certificate, args.private_key) if args.certificate and args.private_key else args.certificate
 
+    headers = None if not args.header else \
+        {name.strip(): value.strip() for name, _, value in [header.partition(':') for header in args.header]}
+
     urls = args.url if args.url else args.urls
     files = ['']*len(urls) if args.output is None else args.output+['']*(len(urls)-len(args.output))
     if len(files) > len(urls):
@@ -362,11 +388,12 @@ def main():
 
     ignore_termination_signals()
     try:
-        with BDownloader(max_workers=args.max_workers, min_split_size=args.min_split_size, chunk_size=args.chunk_size,
-                         proxy=args.proxy, cookies=args.cookie, user_agent=args.user_agent, progress=args.progress,
-                         num_pools=args.num_pools, pool_maxsize=args.pool_size, continuation=continuation,
-                         referrer=args.referrer, check_certificate=check_certificate,
-                         ca_certificate=args.ca_certificate, certificate=client_certificate) as downloader:
+        with BDownloader(max_workers=args.max_workers, max_parallel_downloads=args.max_parallel_downloads,
+                         workers_per_download=args.workers_per_download, min_split_size=args.min_split_size,
+                         chunk_size=args.chunk_size, proxy=args.proxy, cookies=args.cookie, user_agent=args.user_agent,
+                         progress=args.progress, num_pools=args.num_pools, pool_maxsize=args.pool_size, continuation=continuation,
+                         referrer=args.referrer, check_certificate=check_certificate, ca_certificate=args.ca_certificate,
+                         certificate=client_certificate, headers=headers) as downloader:
             install_signal_handlers(downloader)
             downloader.downloads(path_urls)
             succeeded, failed = downloader.wait_for_all()
