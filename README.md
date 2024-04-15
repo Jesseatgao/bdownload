@@ -449,7 +449,7 @@ bdownload      url | -L URLS [URLS ...]
 `-H HEADER, --header HEADER`
 
     extra HTTP header, standard or custom, which can be repeated several times, e.g. 
-    '`-H "User-Agent: John Doe" -H "X-BD-Key: One Thousand And One Nights"`'.The headers take precedence over the ones 
+    '`-H "User-Agent: John Doe" -H "X-BD-Key: One Thousand And One Nights"`'. The headers take precedence over the ones 
     specified by other parameters if conflict happens
 
 `-h, --help`

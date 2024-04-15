@@ -15,6 +15,7 @@ from codecs import encode, decode
 import logging
 from functools import partial
 import signal
+import netrc
 
 from requests.cookies import cookielib
 
@@ -292,8 +293,14 @@ def _arg_parser():
 
     parser.add_argument('-H', '--header', dest='header', action='append', type=_validate_http_header,
                         help='extra HTTP header, standard or custom, which can be repeated several times, '
-                             'e.g. \'-H "User-Agent: John Doe" -H "X-BD-Key: One Thousand And One Nights"\'.'
+                             'e.g. \'-H "User-Agent: John Doe" -H "X-BD-Key: One Thousand And One Nights"\'. '
                              'The headers take precedence over the ones specified by other parameters if conflict happens.')
+    parser.add_argument('-u', '--user-pass', dest='user_pass',
+                        help='default HTTP Authentication for ALL the downloads in \'user:password\' format. '
+                             'Warning: don\'t use this option if not all of the downloads need the authentication '
+                             'to avoid leaking credential, use the \'--netrc-file\' option instead')
+    parser.add_argument('--netrc-file', dest='netrc_file',
+                        help='a .netrc file for HTTP authentication WITHOUT the \'default\' token')
 
     return parser
 
@@ -378,6 +385,14 @@ def main():
     headers = None if not args.header else \
         {name.strip(): value.strip() for name, _, value in [header.partition(':') for header in args.header]}
 
+    default_auth = None
+    if args.user_pass:
+        user, _, passwd = args.user_pass.partition(":")
+        default_auth = (user, passwd)
+
+    netrc_auth = {machine: (login, password) for machine, (login, _, password) in
+                  netrc.netrc(args.netrc_file).hosts.items()} if args.netrc_file else None
+
     urls = args.url if args.url else args.urls
     files = ['']*len(urls) if args.output is None else args.output+['']*(len(urls)-len(args.output))
     if len(files) > len(urls):
@@ -393,7 +408,7 @@ def main():
                          chunk_size=args.chunk_size, proxy=args.proxy, cookies=args.cookie, user_agent=args.user_agent,
                          progress=args.progress, num_pools=args.num_pools, pool_maxsize=args.pool_size, continuation=continuation,
                          referrer=args.referrer, check_certificate=check_certificate, ca_certificate=args.ca_certificate,
-                         certificate=client_certificate, headers=headers) as downloader:
+                         certificate=client_certificate, auth=default_auth, netrc=netrc_auth, headers=headers) as downloader:
             install_signal_handlers(downloader)
             downloader.downloads(path_urls)
             succeeded, failed = downloader.wait_for_all()

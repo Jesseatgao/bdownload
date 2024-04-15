@@ -228,6 +228,8 @@ class RequestsSessionWrapper(Session):
             referrer (str): Same as for :meth:`BDownloader.__init__()`.
             verify (bool or str): Same as for :meth:`requests.request()`.
             cert (str or tuple): Same as for :meth:`requests.request()`.
+            headers (dict): Same meaning as in :meth:`BDownloader.__init__()`.
+            auth (tuple or :class:`requests.auth.AuthBase`): Same meaning as in :meth:`BDownloader.__init__()`.
             requester_cb (func): The callback function provided by the downloader that uses the instantiated
                 session object as the HTTP(S) requester. It will get called when making an HTTP GET request.
         """
@@ -597,9 +599,9 @@ class BDownloader(object):
                     "cancelled_on_exception": False,
                     "orig_path_url": ('file1', 'url1\turl2\turl3'),  # (path, url) as a subparameter passed to :meth:`downloads`
                     "path_url": ('full_path_to_file1', 'url1\turl2\turl3'),  # (full_pathname, active_URLs)
-                    "urls":{"url1":{"accept_ranges": "bytes", "refcnt": 1, "interrupted": 2, "succeeded": -5},
-                            "url2":{"accept_ranges": "none", "refcnt": 0, "interrupted": 0, "succeeded": 0},
-                            "url3":{"accept_ranges": "bytes", "refcnt": 1, "interrupted": 0, "succeeded": -2}},
+                    "urls":{"url1":{"auth": None, "accept_ranges": "bytes", "refcnt": 1, "interrupted": 2, "succeeded": -5},
+                            "url2":{"auth": None, "accept_ranges": "none", "refcnt": 0, "interrupted": 0, "succeeded": 0},
+                            "url3":{"auth": None, "accept_ranges": "bytes", "refcnt": 1, "interrupted": 0, "succeeded": -2}},
                     "alt_ranges": [("bytes=1000-1999", `ctx_range2_obj`)],  # task ranges stack
                     "worker_ranges": [("bytes=0-999", `ctx_range1_obj`)],  # active range downloading tasks
                     "active_workers": 1,  # number of active worker threads on ranges downloading of the file
@@ -680,7 +682,7 @@ class BDownloader(object):
                  chunk_size=1024*100, proxy=None, cookies=None, user_agent=None, logger=None, progress='mill',
                  num_pools=20, pool_maxsize=20, request_timeout=None, request_retries=None, status_forcelist=None,
                  resumption_retries=None, continuation=True, referrer=None, check_certificate=True, ca_certificate=None,
-                 certificate=None, auth=None, headers=None):
+                 certificate=None, auth=None, netrc=None, headers=None):
         """Create and initialize a :class:`BDownloader` object.
 
         Args:
@@ -751,7 +753,9 @@ class BDownloader(object):
                 `cert` in :meth:`requests.request()`.
             auth (tuple or :class:`requests.auth.AuthBase`): The `auth` parameter sets a (user, pass) tuple or Auth handler
                 to enable Basic/Digest/Custom HTTP Authentication. It will be passed down directly to the attribute `auth`
-                of the underlying :class:`requests.Session` instance.
+                of the underlying :class:`requests.Session` instance as the default authentication.
+            netrc (dict): `netrc` specifies a dictionary of ``'machine': (login, password)`` (or ``'machine': :class:`requests.auth.AuthBase```)
+                for HTTP Authentication, similar to the .netrc file format in spirit.
             headers(dict): `headers` specifies extra HTTP headers, standard or custom, for use in all of the requests
                 made by the session. The headers take precedence over the ones specified by other parameters, e.g. `user_agent`,
                 if conflict happens.
@@ -777,6 +781,7 @@ class BDownloader(object):
                                                 backoff_factor=RETRY_BACKOFF_FACTOR,
                                                 status_forcelist=status_forcelist,
                                                 num_pools=num_pools, pool_maxsize=pool_maxsize)
+        self.netrc = netrc
 
         self.max_parallel_downloads = max_parallel_downloads
         self.workers_per_download = workers_per_download
@@ -944,7 +949,7 @@ class BDownloader(object):
                         headers = {"Range": req_range_new}
 
                         try:
-                            r = self.requester.get(url, headers=headers, allow_redirects=True, stream=True)
+                            r = self.requester.get(url, headers=headers, allow_redirects=True, stream=True, auth=ctx_file['urls'][url]['auth'])
                             if r.status_code == requests.codes.partial:
                                 try:
                                     for chunk in r.iter_content(chunk_size=self._STREAM_CHUNK_SIZE):
@@ -1054,7 +1059,7 @@ class BDownloader(object):
                     fd.seek(range_start)
 
                     try:
-                        r = self.requester.get(url, headers=headers, allow_redirects=True, stream=True)
+                        r = self.requester.get(url, headers=headers, allow_redirects=True, stream=True, auth=ctx_file['urls'][url]['auth'])
                         if r.status_code == status_code:
                             try:
                                 for chunk in r.iter_content(chunk_size=self._STREAM_CHUNK_SIZE):
@@ -1340,8 +1345,19 @@ class BDownloader(object):
         active_urls = []
         downloadable = False  # Must have at least one active URL to download the file
         for mirror_url in orig_urls:
+            # determine the URL-specific authentication
+            auth = None
+            if self.netrc:
+                parsed = urlparse(mirror_url)
+                if parsed.username and parsed.password:
+                    auth = (parsed.username, parsed.password)
+                else:
+                    auth = self.netrc.get(parsed.netloc)
+                    if not auth and parsed.port:
+                        auth = self.netrc.get(parsed.hostname)
+
             try:
-                with self.requester.get(mirror_url, allow_redirects=True, stream=True) as r:
+                with self.requester.get(mirror_url, allow_redirects=True, stream=True, auth=auth) as r:
                     if r.status_code == requests.codes.ok:
                         file_len = int(r.headers.get('Content-Length', 0))
                         if file_len:
@@ -1355,7 +1371,7 @@ class BDownloader(object):
 
                                     continue
 
-                        ctx_url = ctx_file['urls'][mirror_url] = {'accept_ranges': "none", 'refcnt': 0, 'interrupted': 0,
+                        ctx_url = ctx_file['urls'][mirror_url] = {'auth': auth, 'accept_ranges': "none", 'refcnt': 0, 'interrupted': 0,
                                                                   'succeeded': 0}
 
                         accept_ranges = r.headers.get('Accept-Ranges')
