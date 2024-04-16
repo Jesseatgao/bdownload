@@ -199,6 +199,14 @@ def _validate_http_header(header):
     return header
 
 
+def _validate_netrc_file(file):
+    try:
+        netrc_auth = {machine: (login, password) for machine, (login, _, password) in netrc.netrc(file).hosts.items()}
+        return netrc_auth
+    except netrc.NetrcParseError as e:
+        raise ArgumentTypeError(str(e))
+
+
 def _arg_parser():
     parser = ArgumentParser()
 
@@ -299,8 +307,9 @@ def _arg_parser():
                         help='default HTTP Authentication for ALL the downloads in \'user:password\' format. '
                              'Warning: don\'t use this option if not all of the downloads need the authentication '
                              'to avoid leaking credential, use the \'--netrc-file\' option instead')
-    parser.add_argument('--netrc-file', dest='netrc_file',
-                        help='a .netrc file for HTTP authentication WITHOUT the \'default\' token')
+    parser.add_argument('--netrc-file', dest='netrc_file', type=_validate_netrc_file,
+                        help='a .netrc-like file for HTTP authentication, from which the \'default\' entry, if present, '
+                             'takes precedence over the \'--user-pass\' option')
 
     return parser
 
@@ -389,9 +398,8 @@ def main():
     if args.user_pass:
         user, _, passwd = args.user_pass.partition(":")
         default_auth = (user, passwd)
-
-    netrc_auth = {machine: (login, password) for machine, (login, _, password) in
-                  netrc.netrc(args.netrc_file).hosts.items()} if args.netrc_file else None
+    if args.netrc_file and args.netrc_file.get('default'):
+        default_auth = args.netrc_file['default']
 
     urls = args.url if args.url else args.urls
     files = ['']*len(urls) if args.output is None else args.output+['']*(len(urls)-len(args.output))
@@ -408,7 +416,7 @@ def main():
                          chunk_size=args.chunk_size, proxy=args.proxy, cookies=args.cookie, user_agent=args.user_agent,
                          progress=args.progress, num_pools=args.num_pools, pool_maxsize=args.pool_size, continuation=continuation,
                          referrer=args.referrer, check_certificate=check_certificate, ca_certificate=args.ca_certificate,
-                         certificate=client_certificate, auth=default_auth, netrc=netrc_auth, headers=headers) as downloader:
+                         certificate=client_certificate, auth=default_auth, netrc=args.netrc_file, headers=headers) as downloader:
             install_signal_handlers(downloader)
             downloader.downloads(path_urls)
             succeeded, failed = downloader.wait_for_all()

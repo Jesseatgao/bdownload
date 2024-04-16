@@ -754,10 +754,15 @@ class BDownloader(object):
             auth (tuple or :class:`requests.auth.AuthBase`): The `auth` parameter sets a (user, pass) tuple or Auth handler
                 to enable Basic/Digest/Custom HTTP Authentication. It will be passed down directly to the attribute `auth`
                 of the underlying :class:`requests.Session` instance as the default authentication.
-            netrc (dict): `netrc` specifies a dictionary of ``'machine': (login, password)`` (or ``'machine': :class:`requests.auth.AuthBase```)
+
+                Warning:
+                    The `auth` will be applied to all the downloads for HTTP Authentication. Don't use this parameter,
+                    if not all of the downloads need the authentication, to avoid leaking credential. Instead, use
+                    the **netrc** parameter for fine-grained control over HTTP Authentication.
+            netrc (dict): `netrc` specifies a dictionary of ``'machine': (login, password)`` (or ``'machine': requests.auth.AuthBase``)
                 for HTTP Authentication, similar to the .netrc file format in spirit.
             headers(dict): `headers` specifies extra HTTP headers, standard or custom, for use in all of the requests
-                made by the session. The headers take precedence over the ones specified by other parameters, e.g. `user_agent`,
+                made by the session. The headers take precedence over the ones specified by other parameters, e.g. **user_agent**,
                 if conflict happens.
 
         Raises:

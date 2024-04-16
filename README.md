@@ -43,7 +43,7 @@ class bdownload.BDownloader(max_workers=None, max_parallel_downloads=5, workers_
                             chunk_size=1024*100, proxy=None, cookies=None, user_agent=None, logger=None, progress='mill',
                             num_pools=20, pool_maxsize=20, request_timeout=None, request_retries=None, status_forcelist=None,
                             resumption_retries=None, continuation=True, referrer=None, check_certificate=True, ca_certificate=None,
-                            certificate=None, auth=None, headers=None)
+                            certificate=None, auth=None, netrc=None, headers=None)
 `
 
     Create and initialize a `BDownloader` object for executing download jobs.
@@ -125,7 +125,16 @@ class bdownload.BDownloader(max_workers=None, max_parallel_downloads=5, workers_
   * `certificate` specifies a client certificate. It has the same meaning as that of `cert` in `requests.request()`.
 
   * The `auth` parameter sets a (user, pass) tuple or Auth handler to enable Basic/Digest/Custom HTTP Authentication. 
-    It will be passed down directly to the attribute `auth` of the underlying :class:`requests.Session` instance.
+    It will be passed down directly to the attribute `auth` of the underlying :class:`requests.Session` instance as 
+    the default authentication.
+    
+    > **:Warning:**\
+      The `auth` will be applied to all the downloads for HTTP Authentication. Don't use this parameter, if not all of the
+      downloads need the authentication, to avoid leaking credential. Instead, use the `netrc` parameter for fine-grained
+      control over HTTP Authentication.
+
+  * `netrc` specifies a dictionary of ``'machine': (login, password)`` (or ``'machine': requests.auth.AuthBase``)
+    for HTTP Authentication, similar to the .netrc file format in spirit.
 
   * `headers` specifies extra HTTP headers, standard or custom, for use in all of the requests made by the session. 
     The headers take precedence over the ones specified by other parameters, e.g. `user_agent`, if conflict happens.
@@ -143,17 +152,17 @@ BDownloader.downloads(path_urls)
     ('_/**to**/**be**/created/_', '_https://flash.jiefang.rmy/lc-cl/gaozhuang/chelsia/rockspeaker.tar.gz_'), ('_/path/to/**existing**-dir_',
     '_https://ghosthat.bar/foo/puretonecone81.xz\thttps://tpot.horn/foo/puretonecone81.xz\thttps://hawkhill.bar/foo/puretonecone81.xz_')].
     
-    Note that `BDownloaderException` will be raised if the downloads were interrupted, e.g. by calling
+    Note that `BDownloaderException` will be raised if the downloads were interrupted, e.g. by calling
     `BDownloader.cancel()` in a `SIGINT` signal handler, in the process of submitting the download requests.
 
-  > **:warning:**\
-  > The method is not thread-safe, which means it should not be called at the same time in multiple threads
-  > with one instance.
-  >
-  > When multi-instanced (e.g. one instance per thread), the file paths specified in one instance should not overlap 
-  > those in another to avoid potential race conditions. File loss may occur, for example, if a failed download task 
-  > in one instance tries to delete a directory that is being accessed by some download tasks in other instances.
-  > However, this limitation doesn't apply to the file paths specified in a same instance.
+    > **:warning:**\
+      The method is not thread-safe, which means it should not be called at the same time in multiple threads
+      with one instance.
+    > 
+    > When multi-instanced (e.g. one instance per thread), the file paths specified in one instance should not overlap 
+      those in another to avoid potential race conditions. File loss may occur, for example, if a failed download task 
+      in one instance tries to delete a directory that is being accessed by some download tasks in other instances.
+      However, this limitation doesn't apply to the file paths specified in a same instance.
 
 `
 BDownloader.download(path, url)
@@ -164,11 +173,11 @@ BDownloader.download(path, url)
   * Similar to `BDownloader.downloads()`, in fact it is just a special case of which, with [(`path`, `url`)] composed of
     the specified parameters as the input.
     
-    Note that `BDownloaderException` will be raised if the download was interrupted, e.g. by calling
+    Note that `BDownloaderException` will be raised if the download was interrupted, e.g. by calling
     `BDownloader.cancel()` in a `SIGINT` signal handler, in the process of submitting the download request.
     
-  > **:warning:**\
-  > The limitation on the method and the `path_name` parameter herein is the same as in `BDownloader.downloads()`.
+    > **:warning:**\
+      The limitation on the method and the `path_name` parameter herein is the same as in `BDownloader.downloads()`.
 
 `
 BDownloader.wait_for_all()
@@ -330,7 +339,7 @@ bdownload      url | -L URLS [URLS ...]
                [--certificate CERTIFICATE] [--private-key PRIVATE_KEY]
                [-P {mill,bar,none}] [--num-pools NUM_POOLS]
                [--pool-size POOL_SIZE] [-l {debug,info,warning,error,critical}]
-               [-c | --no-continue] [-H HEADER]
+               [-c | --no-continue] [-H HEADER] [-u USER_PASS] [--netrc-file NETRC_FILE]
                [-h]
 ```
 
@@ -451,6 +460,16 @@ bdownload      url | -L URLS [URLS ...]
     extra HTTP header, standard or custom, which can be repeated several times, e.g. 
     '`-H "User-Agent: John Doe" -H "X-BD-Key: One Thousand And One Nights"`'. The headers take precedence over the ones 
     specified by other parameters if conflict happens
+
+`-u USER_PASS, --user-pass USER_PASS`
+
+    default HTTP Authentication for ALL the downloads in "`user:password`" format. Warning: don't use this option
+    if not all of the downloads need the authentication to avoid leaking credential, use the `--netrc-file` option instead
+
+`--netrc-file NETRC_FILE`
+
+    a .netrc-like file for HTTP authentication, from which the 'default' entry, if present, takes precedence
+    over the `--user-pass` option
 
 `-h, --help`
 

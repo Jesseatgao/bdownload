@@ -61,7 +61,7 @@ Synopsis
                    [--certificate CERTIFICATE] [--private-key PRIVATE_KEY]
                    [-P {mill,bar,none}] [--num-pools NUM_POOLS]
                    [--pool-size POOL_SIZE] [-l {debug,info,warning,error,critical}]
-                   [-c | --no-continue] [-H HEADER]
+                   [-c | --no-continue] [-H HEADER] [-u USER_PASS] [--netrc-file NETRC_FILE]
                    [-h]
 
 Description
@@ -182,6 +182,16 @@ Description
     extra HTTP header, standard or custom, which can be repeated several times, e.g.
     '`-H "User-Agent: John Doe" -H "X-BD-Key: One Thousand And One Nights"`'.The headers take precedence over the ones
     specified by other parameters if conflict happens
+
+``-u USER_PASS, --user-pass USER_PASS``
+
+    default HTTP Authentication for ALL the downloads in "`user:password`" format. Warning: don't use this option
+    if not all of the downloads need the authentication to avoid leaking credential, use the `--netrc-file` option instead
+
+``--netrc-file NETRC_FILE``
+
+    a .netrc-like file for HTTP authentication, from which the 'default' entry, if present, takes precedence over the
+    `--user-pass` option
 
 ``-h, --help``
 
