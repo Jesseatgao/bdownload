@@ -42,6 +42,7 @@ import requests
 from requests.adapters import HTTPAdapter
 from requests.packages.urllib3.util.retry import Retry
 from requests import Session
+from requests.auth import AuthBase, HTTPBasicAuth, HTTPDigestAuth, extract_cookies_to_jar
 from requests.cookies import cookielib, RequestsCookieJar
 from clint.textui import progress as clint_progress
 
@@ -73,6 +74,9 @@ RETRY_BACKOFF_FACTOR = 0.1
 
 #: set: Default status codes to retry on intended for the underlying ``urllib3``.
 URLLIB3_RETRY_STATUS_CODES = frozenset([413, 429, 500, 502, 503, 504])
+
+#: set: Default status codes that should be avoided retrying on before handled
+RETRY_EXEMPT_STATUS_CODES = frozenset([401, 407])
 
 COOKIE_STR_REGEX = re.compile(r'^\s*(?:[^,; =]+=[^,; ]+\s*(?:$|\s+|;\s*))+\s*$')
 """regex: A compiled regular expression object used to match the cookie string in the form of key/value pairs.
@@ -134,14 +138,15 @@ def set_requests_retries_factor(retries):
         _requests_extended_retries_factor = retries
 
 
-def retry_requests(exceptions, backoff_factor=0.1, logger=None):
+def retry_requests(exceptions, status_exemptlist=RETRY_EXEMPT_STATUS_CODES, backoff_factor=0.1, logger=None):
     """A decorator that retries calling the wrapped ``requests``' function using an exponential backoff on exception.
 
     The retry attempt will be activated in the event of `exceptions` being caught and for all the bad status codes (i.e.
-    codes ranging from 400 to 600).
+    codes ranging from 400 to 600) except the ones in `status_exemptlist`.
 
     Args:
         exceptions (:obj:`Exception` or :obj:`tuple` of :obj:`Exception`\ s): The exceptions to check against.
+        status_exemptlist (set of int): A set of HTTP status codes that the retry should be avoided.
         backoff_factor (float): The backoff factor to apply between retries.
         logger (logging.Logger): An event logger.
 
@@ -179,7 +184,8 @@ def retry_requests(exceptions, backoff_factor=0.1, logger=None):
             while True:
                 try:
                     r = f(*args, **kwargs)  # `r` is an instance of the ``requests.Response`` object
-                    r.raise_for_status()
+                    if not (status_exemptlist and r.status_code in status_exemptlist):
+                        r.raise_for_status()
                     return r
                 except exceptions as e:
                     ntries += 1
@@ -256,11 +262,11 @@ class RequestsSessionWrapper(Session):
 
         self.referrer = referrer.strip() if referrer is not None else referrer
         if self.referrer:
-            self.headers.setdefault('Referer', self.referrer)
+            self.headers['Referer'] = self.referrer
 
         default_user_agent = 'bdownload/{}'.format(__version__)
         self.user_agent = user_agent if user_agent and user_agent.strip() else default_user_agent
-        self.headers.setdefault('User-Agent', self.user_agent)
+        self.headers['User-Agent'] = self.user_agent
 
         if proxy is not None:
             self.proxies = dict(http=proxy, https=proxy)
@@ -569,6 +575,43 @@ class MillProgress(object):
             self.STREAM.flush()
 
 
+class HTTPBasicAuthEx(HTTPBasicAuth):
+    """Attaches HTTP Basic Authentication to the given Request object.
+
+    This class is adapted from ``requests.auth.HTTPBasicAuth`` and ``requests.auth.HTTPDigestAuth``, with added support
+    for handling `Unauthorized` request on the response.
+
+    References:
+         https://github.com/psf/requests/blob/main/src/requests/auth.py
+    """
+    def __init__(self, username, password):
+        super(HTTPBasicAuthEx, self).__init__(username, password)
+
+    def handle_401(self, r, **kwargs):
+        """Takes the given response and tries basic-auth, if needed."""
+        if not 400 <= r.status_code < 500:
+            return r
+
+        s_auth = r.headers.get('www-authenticate', '')
+        if 'basic' in s_auth.lower():
+            # Consume content and release the original connection
+            # to allow our new request to reuse the same one.
+            r.content
+            r.close()
+            prep = r.request.copy()
+            extract_cookies_to_jar(prep._cookies, r.request, r.raw)
+            prep.prepare_cookies(prep._cookies)
+
+            prep = self.__call__(prep)
+            _r = r.connection.send(prep, **kwargs)
+            _r.history.append(r)
+            _r.request = prep
+
+            return _r
+
+        return r
+
+
 class BDownloader(object):
     """The class for executing and managing download jobs.
 
@@ -599,9 +642,9 @@ class BDownloader(object):
                     "cancelled_on_exception": False,
                     "orig_path_url": ('file1', 'url1\turl2\turl3'),  # (path, url) as a subparameter passed to :meth:`downloads`
                     "path_url": ('full_path_to_file1', 'url1\turl2\turl3'),  # (full_pathname, active_URLs)
-                    "urls":{"url1":{"auth": None, "accept_ranges": "bytes", "refcnt": 1, "interrupted": 2, "succeeded": -5},
-                            "url2":{"auth": None, "accept_ranges": "none", "refcnt": 0, "interrupted": 0, "succeeded": 0},
-                            "url3":{"auth": None, "accept_ranges": "bytes", "refcnt": 1, "interrupted": 0, "succeeded": -2}},
+                    "urls":{"url1":{"auth": None, "auth_header": {"Authorization": "Basic dXNlcjpwYXNz"}, "accept_ranges": "bytes", "refcnt": 1, "interrupted": 2, "succeeded": -5},
+                            "url2":{"auth": None, "auth_header": {"Authorization": "Digest username='user',realm=..."}, "accept_ranges": "none", "refcnt": 0, "interrupted": 0, "succeeded": 0},
+                            "url3":{"auth": None, "auth_header": {}, "accept_ranges": "bytes", "refcnt": 1, "interrupted": 0, "succeeded": -2}},
                     "alt_ranges": [("bytes=1000-1999", `ctx_range2_obj`)],  # task ranges stack
                     "worker_ranges": [("bytes=0-999", `ctx_range1_obj`)],  # active range downloading tasks
                     "active_workers": 1,  # number of active worker threads on ranges downloading of the file
@@ -779,14 +822,16 @@ class BDownloader(object):
 
         verify = ca_certificate if check_certificate and ca_certificate else check_certificate
 
+        self.auth = auth
+        self.netrc = netrc
+
         session = RequestsSessionWrapper(timeout=request_timeout, proxy=proxy, cookies=cookies, user_agent=user_agent,
-                                         referrer=referrer, verify=verify, cert=certificate, headers=headers, auth=auth,
+                                         referrer=referrer, verify=verify, cert=certificate, headers=headers, auth=None,
                                          requester_cb=self.raise_on_interrupted)
         self.requester = requests_retry_session(session=session, builtin_retries=request_retries,
                                                 backoff_factor=RETRY_BACKOFF_FACTOR,
                                                 status_forcelist=status_forcelist,
                                                 num_pools=num_pools, pool_maxsize=pool_maxsize)
-        self.netrc = netrc
 
         self.max_parallel_downloads = max_parallel_downloads
         self.workers_per_download = workers_per_download
@@ -952,6 +997,7 @@ class BDownloader(object):
                     for start, end in ranges:
                         req_range_new = "bytes={}-{}".format(start, end)
                         headers = {"Range": req_range_new}
+                        headers.update(ctx_file['urls'][url]['auth_header'])
 
                         try:
                             r = self.requester.get(url, headers=headers, allow_redirects=True, stream=True, auth=ctx_file['urls'][url]['auth'])
@@ -1060,6 +1106,7 @@ class BDownloader(object):
                         range_start = ctx_range['start']
                         headers = {}
                         status_code = requests.codes.ok
+                    headers.update(ctx_file['urls'][url]['auth_header'])
 
                     fd.seek(range_start)
 
@@ -1352,17 +1399,32 @@ class BDownloader(object):
         for mirror_url in orig_urls:
             # determine the URL-specific authentication
             auth = None
-            if self.netrc:
-                parsed = urlparse(mirror_url)
-                if parsed.username and parsed.password:
-                    auth = (parsed.username, parsed.password)
-                else:
-                    auth = self.netrc.get(parsed.netloc)
-                    if not auth and parsed.port:
-                        auth = self.netrc.get(parsed.hostname)
+            parsed = urlparse(mirror_url)
+            if parsed.username and parsed.password:
+                auth = (parsed.username, parsed.password)
+            elif self.netrc:
+                auth = self.netrc.get(parsed.netloc)
+                if not auth and parsed.port:
+                    auth = self.netrc.get(parsed.hostname)
+            if not auth:
+                auth = self.auth
+
+            auth_up = None if isinstance(auth, AuthBase) else auth  # ('user', 'passwd')
+            auth_wx = auth if isinstance(auth, AuthBase) else None
 
             try:
-                with self.requester.get(mirror_url, allow_redirects=True, stream=True, auth=auth) as r:
+                with self.requester.get(mirror_url, allow_redirects=True, stream=True, auth=auth_wx) as r:
+                    if r.status_code == requests.codes.unauthorized and auth_up:
+                        r_auth = r.headers.get('www-authenticate', '').lower()
+                        if "digest" in r_auth:
+                            auth_wx = HTTPDigestAuth(*auth_up)
+                            auth_wx.init_per_thread_state()
+                            auth_wx._thread_local.num_401_calls = 0
+                            r = auth_wx.handle_401(r)
+                        elif "basic" in r_auth:
+                            auth_wx = HTTPBasicAuthEx(*auth_up)
+                            r = auth_wx.handle_401(r)
+
                     if r.status_code == requests.codes.ok:
                         file_len = int(r.headers.get('Content-Length', 0))
                         if file_len:
@@ -1376,7 +1438,9 @@ class BDownloader(object):
 
                                     continue
 
-                        ctx_url = ctx_file['urls'][mirror_url] = {'auth': auth, 'accept_ranges': "none", 'refcnt': 0, 'interrupted': 0,
+                        auth_header = {'Authorization': r.request.headers['Authorization']} if r.request.headers.get('Authorization') else {}
+                        ctx_url = ctx_file['urls'][mirror_url] = {'auth': auth_wx, 'auth_header': auth_header,
+                                                                  'accept_ranges': "none", 'refcnt': 0, 'interrupted': 0,
                                                                   'succeeded': 0}
 
                         accept_ranges = r.headers.get('Accept-Ranges')
