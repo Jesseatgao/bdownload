@@ -795,8 +795,8 @@ class BDownloader(object):
             certificate (str or tuple): `certificate` specifies a client certificate. It has the same meaning as that of
                 `cert` in :meth:`requests.request()`.
             auth (tuple or :class:`requests.auth.AuthBase`): The `auth` parameter sets a (user, pass) tuple or Auth handler
-                to enable Basic/Digest/Custom HTTP Authentication. It will be passed down directly to the attribute `auth`
-                of the underlying :class:`requests.Session` instance as the default authentication.
+                to enable Basic/Digest/Custom HTTP Authentication. It will be passed down to the underlying :class:`requests.Session`
+                instance as the default authentication.
 
                 Warning:
                     The `auth` will be applied to all the downloads for HTTP Authentication. Don't use this parameter,

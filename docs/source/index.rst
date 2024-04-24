@@ -186,12 +186,12 @@ Description
 ``-u USER_PASS, --user-pass USER_PASS``
 
     default HTTP Authentication for ALL the downloads in "`user:password`" format. Warning: don't use this option
-    if not all of the downloads need the authentication to avoid leaking credential, use the `--netrc-file` option instead
+    if not all of the downloads need the authentication to avoid leaking credential, use the ``--netrc-file`` option instead
 
 ``--netrc-file NETRC_FILE``
 
     a .netrc-like file for HTTP authentication, from which the 'default' entry, if present, takes precedence over the
-    `--user-pass` option
+    ``--user-pass`` option
 
 ``-h, --help``
 

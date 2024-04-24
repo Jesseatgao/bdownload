@@ -125,10 +125,9 @@ class bdownload.BDownloader(max_workers=None, max_parallel_downloads=5, workers_
   * `certificate` specifies a client certificate. It has the same meaning as that of `cert` in `requests.request()`.
 
   * The `auth` parameter sets a (user, pass) tuple or Auth handler to enable Basic/Digest/Custom HTTP Authentication. 
-    It will be passed down directly to the attribute `auth` of the underlying :class:`requests.Session` instance as 
-    the default authentication.
+    It will be passed down to the underlying :class:`requests.Session` instance as the default authentication.
     
-    > **:Warning:**\
+    > **:warning:**\
       The `auth` will be applied to all the downloads for HTTP Authentication. Don't use this parameter, if not all of the
       downloads need the authentication, to avoid leaking credential. Instead, use the `netrc` parameter for fine-grained
       control over HTTP Authentication.
