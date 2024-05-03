@@ -39,7 +39,8 @@ setup(
         'PySocks',
         'clint',
         'futures; python_version=="2.7"',
-        'certifi==2021.10.8; python_version=="2.7"'
+        'certifi==2021.10.8; python_version=="2.7"',
+        'setuptools; python_version>="3.12"'
     ],
     setup_requires=[],
     cmdclass=cmd_classes,
@@ -72,6 +73,7 @@ setup(
         'Programming Language :: Python :: 3.9',
         'Programming Language :: Python :: 3.10',
         'Programming Language :: Python :: 3.11',
+        'Programming Language :: Python :: 3.12',
         'Programming Language :: Python :: Implementation :: CPython',
         'Programming Language :: Python :: Implementation :: PyPy',
         'License :: OSI Approved :: MIT License',

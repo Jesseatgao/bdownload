@@ -24,7 +24,9 @@ stages:
 jobs:
   include:
     - stage: test
-      python: 3.11
+      python: 3.12
+      env: TOXENV=py312
+    - python: 3.11
       env: TOXENV=py311
     - python: 3.10
       env: TOXENV=py310

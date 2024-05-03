@@ -36,8 +36,15 @@ try:
 except ImportError:
     import pickle
 
-from distutils.dir_util import mkpath, remove_tree
-from distutils.errors import DistutilsFileError
+try:
+    distutils
+except NameError:
+    # On Python 3.12 and beyond
+    from setuptools import distutils
+finally:
+    from distutils.dir_util import mkpath, remove_tree
+    from distutils.errors import DistutilsFileError
+
 import requests
 from requests.adapters import HTTPAdapter
 from requests.packages.urllib3.util.retry import Retry
