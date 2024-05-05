@@ -5,7 +5,7 @@
 
 A multi-threaded and multi-source aria2-like batch file downloading library for Python 2.7 and 3.6+
 
-> **:bulb:**\
+> **:bulb:** **Note**\
 > See also [https://bdownload.readthedocs.io](https://bdownload.readthedocs.io) for API reference.
 
 ### Installation
@@ -20,7 +20,7 @@ A multi-threaded and multi-source aria2-like batch file downloading library for 
     
     Note that you should `git clone` or download the source tarball (and unpack it of course) from the repository first 
 
-> **:bulb:**\
+> **:bulb:** **Note**\
 > For Python2.7: since the version of 2022.5.18, `certifi` has dropped the support for Python2.x. To upgrade to the latest CA
 > certificates bundle, simply run:
 > 
@@ -127,7 +127,7 @@ class bdownload.BDownloader(max_workers=None, max_parallel_downloads=5, workers_
   * The `auth` parameter sets a (user, pass) tuple or Auth handler to enable Basic/Digest/Custom HTTP Authentication. 
     It will be passed down to the underlying :class:`requests.Session` instance as the default authentication.
     
-    > **:warning:**\
+    > **:warning:** **Warning**\
       The `auth` will be applied to all the downloads for HTTP Authentication. Don't use this parameter, if not all of the
       downloads need the authentication, to avoid leaking credential. Instead, use the `netrc` parameter for fine-grained
       control over HTTP Authentication.
@@ -154,7 +154,7 @@ BDownloader.downloads(path_urls)
     Note that `BDownloaderException` will be raised if the downloads were interrupted, e.g. by calling
     `BDownloader.cancel()` in a `SIGINT` signal handler, in the process of submitting the download requests.
 
-    > **:warning:**\
+    > **:warning:** **Warning**\
       The method is not thread-safe, which means it should not be called at the same time in multiple threads
       with one instance.
     > 
@@ -175,7 +175,7 @@ BDownloader.download(path, url)
     Note that `BDownloaderException` will be raised if the download was interrupted, e.g. by calling
     `BDownloader.cancel()` in a `SIGINT` signal handler, in the process of submitting the download request.
     
-    > **:warning:**\
+    > **:warning:** **Warning**\
       The limitation on the method and the `path_name` parameter herein is the same as in `BDownloader.downloads()`.
 
 `
@@ -462,7 +462,7 @@ bdownload      url | -L URLS [URLS ...]
 
 `-u USER_PASS, --user-pass USER_PASS`
 
-    default HTTP Authentication for ALL the downloads in "`user:password`" format. Warning: don't use this option
+    default HTTP Authentication for ALL the downloads in "`user:password`" format. **Warning**: don't use this option
     if not all of the downloads need the authentication to avoid leaking credential, use the `--netrc-file` option instead
 
 `--netrc-file NETRC_FILE`
