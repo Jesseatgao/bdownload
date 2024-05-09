@@ -37,12 +37,11 @@ except ImportError:
     import pickle
 
 try:
-    distutils
-except NameError:
-    # On Python 3.12 and beyond
-    from setuptools import distutils
-finally:
     from distutils.dir_util import mkpath, remove_tree
+except ImportError:
+    # On Python 3.12 and beyond
+    from setuptools.distutils.dir_util import mkpath, remove_tree
+finally:
     from distutils.errors import DistutilsFileError
 
 import requests
