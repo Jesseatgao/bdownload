@@ -82,7 +82,7 @@ RETRY_BACKOFF_FACTOR = 0.1
 URLLIB3_RETRY_STATUS_CODES = frozenset([413, 429, 500, 502, 503, 504])
 
 #: set: Default status codes that should be avoided retrying on before handled
-RETRY_EXEMPT_STATUS_CODES = frozenset([401, 407])
+RETRY_EXEMPT_STATUS_CODES = frozenset([401, 407, 511])
 
 COOKIE_STR_REGEX = re.compile(r'^\s*(?:[^,; =]+=[^,; ]+\s*(?:$|\s+|;\s*))+\s*$')
 """regex: A compiled regular expression object used to match the cookie string in the form of key/value pairs.
@@ -626,6 +626,8 @@ class BDownloader(object):
         ctx = {
             "total_size": 2000,  # total size of all the to-be-downloaded files, maybe inaccurate due to chunked transfer encoding
             "accurate": True,  # Is `total_size` accurate?
+            "last_progress": 0,  # the overall progress, in bytes, from last run loaded when resuming from interruption
+            "downloaded": 0,  # newly accumulated bytes from this run of downloads, which are updated on completion of every worker thread
             "orig_path_urls": [('file1', 'url1\turl2\turl3'), ('file2', 'url4\turl5\turl6')],  # originally added downloads,
                 # which don't necessarily correspond to `files` e.g. due to duplicate or interruption
             "file_cnt": 2,  # number of current downloading files
@@ -858,8 +860,9 @@ class BDownloader(object):
         self.cancelled_on_interrupt = False
         self.stop = False  # Flag signaling waiting threads to exit
         # The download context that maintains the status of the downloading files and the corresponding chunks
-        self._dl_ctx = {'total_size': 0, 'accurate': True, 'orig_path_urls': [], 'file_cnt': 0, 'files': {},
-                        'alt_files': [], 'active_files': [], 'next_download': 0, 'active_downloads': 0, 'poll_changed': False}
+        self._dl_ctx = {'total_size': 0, 'accurate': True, 'last_progress': 0, 'downloaded': 0, 'orig_path_urls': [],
+                        'file_cnt': 0, 'files': {}, 'alt_files': [], 'active_files': [], 'next_download': 0,
+                        'active_downloads': 0, 'poll_changed': False}
 
         # list: A downloadable subset of all the `(path, url)`\ s that were passed to :meth:`BDownloader.download` or
         # :meth:`BDownloader.downloads`.
@@ -1567,6 +1570,7 @@ class BDownloader(object):
             # make the file visible to the world
             self._dl_ctx['alt_files'].append((file_path_name, ctx_file))
             self._dl_ctx['file_cnt'] += 1
+            self._dl_ctx['last_progress'] += ctx_file['last_progress']
 
         return downloadable, path_url, orig_path_url
 
@@ -1822,6 +1826,7 @@ class BDownloader(object):
                 if future.done():
                     ranges_have_dones = True
                     ctx_file['downloaded'] += ctx_range['offset']
+                    self._dl_ctx['downloaded'] += ctx_range['offset']
 
                     try:
                         exception = future.exception()
@@ -1931,6 +1936,18 @@ class BDownloader(object):
                 else self._calc_completed()
             progress_bar.expected_size = self._dl_ctx['total_size']
             progress_bar.done()
+
+    def progress_all(self):
+        """Get the coarse-grained, overall progress of the downloads.
+
+        Returns:
+            tuple: The 3-tuple of the form ``(completed_bytes, total_bytes, is_accurate)``. ``completed_bytes`` is updated
+            on a chunk basis from the worker threads by the management task. If ``is_accurate`` is `False` then ``total_bytes``
+            is inaccurate, i.e. some downloads have undetermined sizes, which also means ``completed_bytes`` may be greater
+            than the ``total_bytes``; otherwise, ``total_bytes`` is the exact sum of sizes of all the downloads. Note that
+            ``total_bytes`` (and ``is_accurate``) may vary during the phase of submitting the downloads.
+        """
+        return self._dl_ctx['last_progress'] + self._dl_ctx['downloaded'], self._dl_ctx['total_size'], self._dl_ctx['accurate']
 
     def downloads(self, path_urls):
         """Submit multiple downloading jobs at a time to the downloading queue.
