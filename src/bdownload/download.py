@@ -21,7 +21,7 @@ try:
 except ImportError:
     # some platforms don't have multiprocessing
     def cpu_count():
-        return None
+        return 0
 
 try:
     from urllib.parse import unquote, urlparse
@@ -36,14 +36,8 @@ try:
 except ImportError:
     import pickle
 
-try:
-    from distutils.dir_util import mkpath, remove_tree
-except ImportError:
-    # On Python 3.12 and beyond
-    from setuptools.distutils.dir_util import mkpath, remove_tree
-finally:
-    from distutils.errors import DistutilsFileError
-
+from distutils.dir_util import mkpath, remove_tree
+from distutils.errors import DistutilsFileError
 import requests
 from requests.adapters import HTTPAdapter
 from requests.packages.urllib3.util.retry import Retry
@@ -118,12 +112,12 @@ def _cpu_count():
     """A simple wrapper around the ``cpu_count()`` for escaping the `NotImplementedError`.
 
     Returns:
-        The number of CPUs in the system. Return `None` if not obtained.
+        int: The number of CPUs in the system. Return ``0`` if not obtained.
     """
     try:
         cpus = cpu_count()
     except NotImplementedError:
-        cpus = None
+        cpus = 0
 
     return cpus
 
