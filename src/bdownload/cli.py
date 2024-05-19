@@ -431,7 +431,7 @@ def main():
 
     exit_code = downloader.result()
 
-    fin_msg = '\nFile(s) downloading was successfully completed!' if not exit_code else '\nFile(s) downloading was aborted with erros!'
+    fin_msg = '\nFile(s) downloading has successfully completed!' if not exit_code else '\nFile(s) downloading has aborted!'
     print(fin_msg)
 
     sys.exit(exit_code)
