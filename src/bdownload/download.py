@@ -657,6 +657,7 @@ class BDownloader(object):
                             "start": 0,  # start byte position
                             "end": 999,  # end byte position, None for 'unkown', see above
                             "offset": 0,  # current pointer position relative to 'start'(i.e. 0)
+                            "last_offset": 0,  # the last pointer position where the range task failed and was rescheduled in this run
                             "start_time": 0,
                             "rt_dl_speed": 0,  # x seconds interval
                             "download_state": "inprocess",
@@ -668,6 +669,7 @@ class BDownloader(object):
                             "start":1000,
                             "end":1999,
                             "offset": 0,  # current pointer position relative to 'start'(i.e. 1000)
+                            "last_offset": 0,  # the last pointer position where the range task failed and was rescheduled in this run
                             "start_time": 0,
                             "rt_dl_speed": 0,  # x seconds interval
                             "download_state": "inprocess",
@@ -1552,6 +1554,7 @@ class BDownloader(object):
                         'start': start,
                         'end': end,
                         'offset': 0,
+                        'last_offset': 0,
                         'start_time': 0,
                         'rt_dl_speed': 0,
                         'download_state': self.PENDING,
@@ -1641,6 +1644,7 @@ class BDownloader(object):
                     'start': ctx_range['start'],
                     'end': ctx_range['end'],
                     'offset': ctx_range['offset'],
+                    'last_offset': 0,
                     'start_time': 0,
                     'rt_dl_speed': 0,
                     'download_state': self.PENDING
@@ -1792,6 +1796,7 @@ class BDownloader(object):
             elif ctx_range['download_state'] == self.FAILED:
                 ctx_range['download_state'] = self.PENDING
                 ctx_range['future'] = None
+                ctx_range['last_offset'] = ctx_range['offset']
                 raised_ranges.append((req_range, ctx_range))
 
         ctx_file['alt_ranges'] += raised_ranges
@@ -1825,8 +1830,8 @@ class BDownloader(object):
                 future = ctx_range['future']
                 if future.done():
                     ranges_have_dones = True
-                    ctx_file['downloaded'] += ctx_range['offset']
-                    self._dl_ctx['downloaded'] += ctx_range['offset']
+                    ctx_file['downloaded'] += ctx_range['offset'] - ctx_range['last_offset']
+                    self._dl_ctx['downloaded'] += ctx_range['offset'] - ctx_range['last_offset']
 
                     try:
                         exception = future.exception()
