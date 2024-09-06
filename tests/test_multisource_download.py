@@ -13,16 +13,16 @@ from bdownload import BDownloader
 FILES = [
             {
                 "file": "gimp-2.8.22-1.el7.x86_64.rpm",
-                "url": "https://mirror.umd.edu/centos/7/os/x86_64/Packages/gimp-2.8.22-1.el7.x86_64.rpm	"
-                       "https://mirrors.mit.edu/centos/7/os/x86_64/Packages/gimp-2.8.22-1.el7.x86_64.rpm\t"
-                       "https://mirror.arizona.edu/centos/7/os/x86_64/Packages/gimp-2.8.22-1.el7.x86_64.rpm",
+                "url": "https://mirrors.aliyun.com/centos-vault/centos/7/os/x86_64/Packages/gimp-2.8.22-1.el7.x86_64.rpm	"
+                       "https://mirror.chpc.utah.edu/pub/centos/7/os/x86_64/Packages/gimp-2.8.22-1.el7.x86_64.rpm\t"
+                       "https://update.cs2c.com.cn/Mirror/centos/7/os/x86_64/Packages/gimp-2.8.22-1.el7.x86_64.rpm",
                 "sha1": "520282f3de34875addb8ad05b7d57f98df6cb64f"
             },
             {
                 "file": "valgrind-3.15.0-11.el7.x86_64.rpm",
-                "url": "https://mirrors.163.com/centos/7/os/x86_64/Packages/valgrind-3.15.0-11.el7.x86_64.rpm	"
-                       "https://mirrors.tuna.tsinghua.edu.cn/centos/7/os/x86_64/Packages/valgrind-3.15.0-11.el7.x86_64.rpm\t"
-                       "https://mirrors.aliyun.com/centos/7/os/x86_64/Packages/valgrind-3.15.0-11.el7.x86_64.rpm",
+                "url": "https://mirrors.163.com/centos-vault/centos/7/os/x86_64/Packages/valgrind-3.15.0-11.el7.x86_64.rpm	"
+                       "https://mirrors.tuna.tsinghua.edu.cn/centos-vault/centos/7/os/x86_64/Packages/valgrind-3.15.0-11.el7.x86_64.rpm\t"
+                       "https://mirrors.aliyun.com/centos-vault/centos/7/os/x86_64/Packages/valgrind-3.15.0-11.el7.x86_64.rpm",
                 "sha1": "84866f6c637042297eda09cdd4fed35118c4f507"
             },
             {
