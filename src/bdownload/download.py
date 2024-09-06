@@ -1419,7 +1419,7 @@ class BDownloader(object):
             auth_wx = auth if isinstance(auth, AuthBase) else None
 
             try:
-                with self.requester.get(mirror_url, allow_redirects=True, stream=True, auth=auth_wx) as r:
+                with self.requester.get(mirror_url, headers={'Accept-Encoding': 'identity'}, allow_redirects=True, stream=True, auth=auth_wx) as r:
                     if r.status_code == requests.codes.unauthorized and auth_up:
                         r_auth = r.headers.get('www-authenticate', '').lower()
                         if "digest" in r_auth:
