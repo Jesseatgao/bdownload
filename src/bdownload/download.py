@@ -1418,8 +1418,9 @@ class BDownloader(object):
             auth_up = None if isinstance(auth, AuthBase) else auth  # ('user', 'passwd')
             auth_wx = auth if isinstance(auth, AuthBase) else None
 
+            headers = {'Accept-Encoding': 'identity'}  # request for the actual size of the file
             try:
-                with self.requester.get(mirror_url, headers={'Accept-Encoding': 'identity'}, allow_redirects=True, stream=True, auth=auth_wx) as r:
+                with self.requester.get(mirror_url, headers=headers, allow_redirects=True, stream=True, auth=auth_wx) as r:
                     if r.status_code == requests.codes.unauthorized and auth_up:
                         r_auth = r.headers.get('www-authenticate', '').lower()
                         if "digest" in r_auth:
@@ -1934,9 +1935,7 @@ class BDownloader(object):
 
             time.sleep(0.1)
         else:
-            progress_bar.last_progress = self._dl_ctx['total_size'] \
-                if self._dl_ctx['accurate'] and not (self.failed_downloads_in_running or self.sigint or self.cmdquit) \
-                else self._calc_completed()
+            progress_bar.last_progress = self._dl_ctx['last_progress'] + self._dl_ctx['downloaded']
             progress_bar.expected_size = self._dl_ctx['total_size']
             progress_bar.done()
 
