@@ -14,6 +14,7 @@ from concurrent.futures import ThreadPoolExecutor, CancelledError  # ,wait
 from math import trunc
 import re
 from operator import itemgetter
+from functools import partial
 
 # Extracted from `futures`
 try:
@@ -53,8 +54,6 @@ with open(os.path.join(here, 'VERSION'), mode='r') as fd:
 
 _py3plus = (sys.version_info[0] >= 3)  # Is Python version 3 and above?
 if not _py3plus:
-    from functools import partial
-
     _os_exit_force = partial(os._exit, -1)
 
 
@@ -637,8 +636,9 @@ class BDownloader(object):
                     "progress": 0,  # `SUCCEEDED` downloaded bytes: initialized to 0, set to the last progress when
                                     # resuming and updated on completion (SUCCEEDED only!) of every task (`Future`)
                     "last_progress": 0,  # CONSTANT: the loaded progress of last run upon resuming from interruption
-                    "downloaded": 0, # downloaded bytes: initialized to 0, and updated on completion (SUCCEEDED, FAILED)
-                                     # of every task (`Future`)
+                    "downloaded": 0,  # downloaded bytes: initialized to 0, and updated on completion (SUCCEEDED, FAILED)
+                                      # of every task (`Future`)
+                    "stdout": False,  # standard output
                     "resumable": True,
                     "resuming_from_intr": False,  # Are we resuming from keyboard interruption?
                     "download_state": "inprocess",
@@ -684,6 +684,8 @@ class BDownloader(object):
             }
         }
     """
+    STD_OUT = '-'            # the qualified file name reserved for standard output
+
     INPROCESS_EXT = '.bdl'        # extension for the file in downloading (i.e. not succeeded yet)
     RESUM_PARTS_EXT = '.bdl.par'  # extension for the resumption parts file
 
@@ -940,7 +942,7 @@ class BDownloader(object):
             bool: ``True`` if the file length is known and the server accepts its range requests, otherwise ``False``.
         """
         ctx_file = self._dl_ctx['files'][path_name]
-        parallel = True if ctx_file['length'] and ctx_file['resumable'] else False
+        parallel = True if ctx_file['length'] and ctx_file['resumable'] and not ctx_file['stdout'] else False
         return parallel
 
     def _is_download_resumable(self, path_name):
@@ -1098,75 +1100,97 @@ class BDownloader(object):
         if ctx_file['download_state'] == self.PENDING:
             ctx_file['download_state'] = self.INPROCESS
 
-        path_name_inprocess = path_name + self.INPROCESS_EXT
+        is_stdout = path_name == self.STD_OUT
+        path_name_inprocess = path_name + self.INPROCESS_EXT if not is_stdout else self.STD_OUT
+        fd = None
         try:
-            with open(path_name_inprocess, mode='r+b') as fd:
-                for tr in range(max_retries+1):
-                    if self._is_download_resumable(path_name) and range_req_satisfiable and ctx_range['offset']:
-                        # request start position and end position(which here we don't care about), maybe resuming from a previous failed request
-                        range_start = ctx_range['start'] + ctx_range['offset']
-                        req_range_new = "bytes={}-{}".format(range_start, '')
-                        headers = {"Range": req_range_new}
-                        status_code = requests.codes.partial
-                    else:
-                        range_start = ctx_range['start']
-                        headers = {}
-                        status_code = requests.codes.ok
-                    headers.update(ctx_file['urls'][url]['auth_header'])
+            if not is_stdout:
+                fd = open(path_name_inprocess, mode='r+b')
+                writeb = fd.write
+            else:
+                writeb = partial(os.write, sys.stdout.fileno())
+                if not _py3plus and sys.platform == 'win32':
+                    # set sys.stdout to binary mode: (https://github.com/palantir/python-language-server/blob/develop/pyls/__main__.py)
+                    import msvcrt
+                    msvcrt.setmode(sys.stdout.fileno(), os.O_BINARY)
 
+            for tr in range(max_retries+1):
+                skip = 0
+                # request start position, maybe resuming from a previous failed request
+                range_start = ctx_range['start'] + ctx_range['offset']
+                if not is_stdout:
                     fd.seek(range_start)
 
-                    try:
-                        r = self.requester.get(url, headers=headers, allow_redirects=True, stream=True, auth=ctx_file['urls'][url]['auth'])
-                        if r.status_code == status_code:
-                            try:
-                                for chunk in r.iter_content(chunk_size=self._STREAM_CHUNK_SIZE):
-                                    fd.write(chunk)
-                                    ctx_range['offset'] += len(chunk)
+                if self._is_download_resumable(path_name) and range_req_satisfiable and ctx_range['offset']:
+                    req_range_new = "bytes={}-{}".format(range_start, '')
+                    headers = {"Range": req_range_new}
+                    status_code = requests.codes.partial
+                else:
+                    headers = {}
+                    status_code = requests.codes.ok
+                    skip = range_start
+                headers.update(ctx_file['urls'][url]['auth_header'])
 
-                                    if headers:
-                                        range_start = ctx_range['start'] + ctx_range['offset']
+                try:
+                    r = self.requester.get(url, headers=headers, allow_redirects=True, stream=True, auth=ctx_file['urls'][url]['auth'])
+                    if r.status_code == status_code:
+                        try:
+                            for chunk in r.iter_content(chunk_size=self._STREAM_CHUNK_SIZE):
+                                if skip:
+                                    skip -= len(chunk)
+                                    continue
+                                writeb(chunk)
+                                ctx_range['offset'] += len(chunk)
 
-                                    self.raise_on_interrupted()
+                                if headers:
+                                    range_start = ctx_range['start'] + ctx_range['offset']
 
-                                break
-                            except requests.RequestException as e:
-                                self._logger.error("Error while downloading '%s'(range:%s-%s/%s-%s): '%r'",
-                                                   os.path.basename(path_name), range_start, range_end,
-                                                   ctx_range['start'], file_end, e)
-                        else:
-                            msg = "Unexpected status code {}, which should have been {}. " \
-                                  "This may be caused by ignored range request.".format(r.status_code, status_code)
-                            self._logger.error(msg)
+                                self.raise_on_interrupted()
 
-                            # In case the server responds with a '200' status code against a range request
-                            if (not alt_urls or alt_try >= len(alt_urls)) and r.status_code == requests.codes.ok:
-                                range_req_satisfiable = False
-                            else:
-                                raise requests.RequestException(msg)
-                    except requests.RequestException as e:
-                        msg = "Error while downloading '{}'(range:{}-{}/{}-{}): '{!r}'".format(
-                            os.path.basename(path_name), range_start, range_end, ctx_range['start'], file_end, e)
+                            break
+                        except requests.RequestException as e:
+                            self._logger.error("Error while downloading '%s'(range:%s-%s/%s-%s): '%r'",
+                                               os.path.basename(path_name), range_start, range_end,
+                                               ctx_range['start'], file_end, e)
+                    else:
+                        msg = "Unexpected status code {}, which should have been {}. " \
+                              "This may be caused by ignored range request.".format(r.status_code, status_code)
                         self._logger.error(msg)
 
-                        if not alt_urls or alt_try >= len(alt_urls):
-                            raise BDownloaderException(msg)
+                        # In case the server responds with a '200' status code against a range request
+                        if (not alt_urls or alt_try >= len(alt_urls)) and r.status_code == requests.codes.ok:
+                            range_req_satisfiable = False
                         else:
-                            url = alt_urls[alt_try]
-                            alt_try += 1
+                            raise requests.RequestException(msg)
+                except requests.RequestException as e:
+                    msg = "Error while downloading '{}'(range:{}-{}/{}-{}): '{!r}'".format(
+                        os.path.basename(path_name), range_start, range_end, ctx_range['start'], file_end, e)
+                    self._logger.error(msg)
 
-                    if tr < max_retries:
-                        self._logger.error("Retrying %d/%d: '%s' at '%s'",
-                                           tr + 1, max_retries, os.path.basename(path_name), url)
-                        time.sleep(0.1)
-                else:
-                    msg = "Task error while downloading '{}'(range: {}-{})".format(os.path.basename(path_name),
-                                                                                   ctx_range['start'], "")
-                    raise BDownloaderException(msg)
+                    if not alt_urls or alt_try >= len(alt_urls):
+                        raise BDownloaderException(msg)
+                    else:
+                        url = alt_urls[alt_try]
+                        alt_try += 1
+
+                if tr < max_retries:
+                    self._logger.error("Retrying %d/%d: '%s' at '%s'",
+                                       tr + 1, max_retries, os.path.basename(path_name), url)
+                    time.sleep(0.1)
+            else:
+                msg = "Task error while downloading '{}'(range: {}-{})".format(os.path.basename(path_name),
+                                                                               ctx_range['start'], "")
+                raise BDownloaderException(msg)
         except EnvironmentError as e:
             self._logger.error("Error while operating on '%s': 'Error number %d: %s'", path_name_inprocess, e.errno, e.strerror)
 
             raise
+        finally:
+            if fd:
+                fd.flush()
+                fd.close()
+            if is_stdout:
+                sys.stdout.flush()
 
     def _pick_file_url(self, path_name):
         """Select one URL from the multiple sources of the file to download from.
@@ -1336,28 +1360,30 @@ class BDownloader(object):
             the successfully loaded resumption context.
         """
         is_resuming, resumption_ctx = False, None
-        if self.continuation:
-            file_inprocess = the_file + self.INPROCESS_EXT
-            file_resumption = the_file + self.RESUM_PARTS_EXT
+        if not self.continuation or ctx_file['stdout']:
+            return is_resuming, resumption_ctx
 
-            if os.path.isfile(file_inprocess) and os.path.isfile(file_resumption):
-                try:
-                    with open(file_resumption, "rb") as f:
-                        resumption_ctx = pickle.load(f)
+        file_inprocess = the_file + self.INPROCESS_EXT
+        file_resumption = the_file + self.RESUM_PARTS_EXT
 
-                    is_resuming = True
-                    # verify that the loaded and newly obtained sizes match
-                    last_len, cur_len = resumption_ctx['length'], ctx_file['length']
-                    if last_len and cur_len and last_len != cur_len:  # This should not usually happen
-                        is_resuming = False
-                        self._logger.warning("The resumption of the download from interruption couldn't be accomplished"
-                                             " due to the inconsistent file lengths, yet download will continue right "
-                                             "from the start of the file: (new: '%r' -- old: '%r')",
-                                             ctx_file['orig_path_url'], resumption_ctx['path_url'])
-                        self._rename_existing_file(file_inprocess)
-                        self._rename_existing_file(file_resumption)
-                except Exception as e:
-                    self._logger.error("Error while loading the resumption parts info from '%s': '%s'", file_resumption, e)
+        if os.path.isfile(file_inprocess) and os.path.isfile(file_resumption):
+            try:
+                with open(file_resumption, "rb") as f:
+                    resumption_ctx = pickle.load(f)
+
+                is_resuming = True
+                # verify that the loaded and newly obtained sizes match
+                last_len, cur_len = resumption_ctx['length'], ctx_file['length']
+                if last_len and cur_len and last_len != cur_len:  # This should not usually happen
+                    is_resuming = False
+                    self._logger.warning("The resumption of the download from interruption couldn't be accomplished"
+                                         " due to the inconsistent file lengths, yet download will continue right "
+                                         "from the start of the file: (new: '%r' -- old: '%r')",
+                                         ctx_file['orig_path_url'], resumption_ctx['path_url'])
+                    self._rename_existing_file(file_inprocess)
+                    self._rename_existing_file(file_resumption)
+            except Exception as e:
+                self._logger.error("Error while loading the resumption parts info from '%s': '%s'", file_resumption, e)
 
         return is_resuming, resumption_ctx
 
@@ -1394,12 +1420,14 @@ class BDownloader(object):
             file_name = path_tail
             file_path = path_head
 
-        orig_urls = url.split('\t')  # maybe TAB-separated URLs
-        ctx_file = {'length': 0, 'progress': 0, 'last_progress': 0, 'downloaded': 0, 'resumable': False,
+        is_stdout = path_name == self.STD_OUT  # whether the contents of the download should be written to standard output
+
+        ctx_file = {'length': 0, 'progress': 0, 'last_progress': 0, 'downloaded': 0, 'stdout': is_stdout, 'resumable': False,
                     'resuming_from_intr': False, 'download_state': self.PENDING, 'cancelled_on_exception': False,
                     'orig_path_url': orig_path_url, 'path_url': None, 'urls': {}, 'ranges': {}, 'alt_ranges': [],
                     'worker_ranges': [], 'active_workers': 0, 'ranges_succeeded': 0}
 
+        orig_urls = url.split('\t')  # maybe TAB-separated URLs
         active_urls = []
         downloadable = False  # Must have at least one active URL to download the file
         for mirror_url in orig_urls:
@@ -1473,7 +1501,7 @@ class BDownloader(object):
             if not file_name:
                 file_name = self._get_fname_from_url(active_urls[0])
 
-            file_path_name = os.path.abspath(os.path.join(file_path, file_name))
+            file_path_name = os.path.abspath(os.path.join(file_path, file_name)) if not is_stdout else self.STD_OUT
             path_url = (file_path_name, '\t'.join(active_urls))
 
             # save the full pathname and active URLs. cf. 'orig_path_url'
@@ -1492,7 +1520,7 @@ class BDownloader(object):
             ctx_file['progress'] = ctx_file['last_progress'] = resumption_ctx['progress'] if is_resuming else 0
 
             # check whether the desired file already exists or not
-            if self.continuation and not is_resuming and os.path.isfile(file_path_name):
+            if self.continuation and not is_resuming and not is_stdout and os.path.isfile(file_path_name):
                 file_len = os.stat(file_path_name).st_size
                 if ctx_file['length'] and file_len == ctx_file['length']:
                     self._logger.warning("The desired file '%s' already exists out there, so that there is no need to "
@@ -1509,7 +1537,7 @@ class BDownloader(object):
                                          "validated, so the download will start anew, and the existing file will be "
                                          "renamed on completion: '%r'", file_path_name, ctx_file['orig_path_url'])
 
-            if not is_resuming:
+            if not is_resuming and not is_stdout:
                 # Prepare the necessary directory structure and file template
                 file_inprocess = file_path_name + self.INPROCESS_EXT
                 top_missing_dir = self._topmost_missing_dir(file_path)
@@ -1655,6 +1683,9 @@ class BDownloader(object):
 
     def _on_succeeded(self, the_file, ctx_file):
         """When transitioning to the `SUCCEEDED` state, convert from in-process to finished file and do the cleanup."""
+        if ctx_file['stdout']:
+            return
+
         file_inprocess = the_file + self.INPROCESS_EXT
         file_resumption = the_file + self.RESUM_PARTS_EXT
 
@@ -1672,6 +1703,9 @@ class BDownloader(object):
 
     def _on_failed(self, the_file, ctx_file):
         """When transitioning to the `FAILED` state, save the resumption ctx or remove the intermediate files."""
+        if ctx_file['stdout']:
+            return
+
         file_inprocess = the_file + self.INPROCESS_EXT
         file_resumption = the_file + self.RESUM_PARTS_EXT
 
@@ -1699,6 +1733,9 @@ class BDownloader(object):
 
     def _on_cancelled(self, the_file, ctx_file):
         """When transitioning to the `CANCELLED` state, remove the empty, obsolete files."""
+        if ctx_file['stdout']:
+            return
+
         file_inprocess = the_file + self.INPROCESS_EXT
         file_resumption = the_file + self.RESUM_PARTS_EXT
 
@@ -1958,6 +1995,7 @@ class BDownloader(object):
             path_urls (:obj:`list` of :obj:`tuple`\ s): `path_urls` accepts a list of tuples of the form ``(path, url)``,
                 where ``path`` should be a pathname, optionally prefixed with absolute or relative paths, and ``url`` should
                 be a URL string, which may consist of multiple TAB-separated URLs pointing to the same file.
+                Note that a single dash '-' specifies the ``path`` reserved for the standard output.
                 A valid `path_urls`, for example, could be [('/opt/files/bar.tar.bz2', ``'https://foo.cc/bar.tar.bz2'``),
                 ('./sanguoshuowen.pdf', ``'https://bar.cc/sanguoshuowen.pdf\\thttps://foo.cc/sanguoshuowen.pdf'``),
                 ('/**to**/**be**/created/', ``'https://flash.jiefang.rmy/lc-cl/gaozhuang/chelsia/rockspeaker.tar.gz'``),

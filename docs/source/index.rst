@@ -39,7 +39,7 @@ Signatures
 
 Examples
 ^^^^^^^^
-    * `movie-downloader's third-party programs downloader <https://github.com/Jesseatgao/movie-downloader/blob/32b775c89f273d0b34af6c713e9a9362039b805c/mdl/third_parties/__init__.py#L175>`_
+    * `movie-downloader's third-party programs downloader <https://github.com/Jesseatgao/movie-downloader/blob/9c7c1cb0a3bb7361510876650f4d5b5ec6a31567/mdl/third_parties/__init__.py#L345>`_
     * :ref:`example_cli`
     * `bdownload's CACERT-updating utility <https://github.com/Jesseatgao/bdownload/blob/master/src/bdownload/utils.py>`_
     * :ref:`test_bdownloader`
@@ -52,7 +52,7 @@ Synopsis
 .. code-block:: shell
 
     bdownload      url | -L URLS [URLS ...]
-                   [-O OUTPUT | -o OUTPUT [OUTPUT ...]] [-D DIR]
+                   [-O OUTPUT | -o OUTPUT [OUTPUT ...] | --stdout] [-D DIR]
                    [-p PROXY] [-n MAX_WORKERS] [-j MAX_PARALLEL_DOWNLOADS]
                    [-J WORKERS_PER_DOWNLOAD] [-k MIN_SPLIT_SIZE] [-s CHUNK_SIZE]
                    [-e COOKIE] [--user-agent USER_AGENT] [--referrer REFERRER]
@@ -90,6 +90,10 @@ Description
 
     one or more file names (optionally prefixed with relative (to ``-D DIR``) or absolute paths), e.g.
     `-o file1.zip ~/file2.tgz`, paired with URLs specified by ``--url`` or ``-L``
+
+``--stdout``
+
+    the contents of the download will be printed to the standard output
 
 ``-D DIR, --dir DIR``
 
@@ -200,6 +204,12 @@ Description
 Examples
 ^^^^^^^^
     ``$ bdownload https://www.afilelink.com/afile.tar.gz``
+
+    ``$ bdownload https://www.afilelink.com/afile.tar.gz -O /abspath/to/afile.tar.gz``
+
+    ``$ bdownload https://www.afilelink.com/afile.tar.gz -o /abspath/to/afile.tar.gz``
+
+    ``$ bdownload --stdout https://www.afilelink.com/afile.tar.gz > /abspath/to/afile.tar.gz``
 
     ``$ bdownload -O /abspath/to/afile.tar.gz https://www.afilelink.com/afile.tar.gz``
 

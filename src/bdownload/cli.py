@@ -217,6 +217,8 @@ def _arg_parser():
     omeg.add_argument('-o', '--output', nargs='+', dest='output',
                       help='one or more file names (optionally prefixed with relative (to `-D DIR`) or absolute paths),'
                            ' e.g. `-o file1.zip ~/file2.tgz`, paired with URLs specified by `--url` or `-L`')
+    omeg.add_argument('--stdout', dest='stdout', action='store_const', const='-',
+                      help='the contents of the download will be printed to the standard output')
 
     parser.add_argument('-D', '--dir', default='.', dest='dir',
                         help='directory in which to save the downloaded files [default: directory in which this App is running]')
@@ -402,11 +404,16 @@ def main():
         default_auth = args.netrc_file['default']
 
     urls = args.url if args.url else args.urls
-    files = ['']*len(urls) if args.output is None else args.output+['']*(len(urls)-len(args.output))
-    if len(files) > len(urls):
-        print('The specified OUTPUTs and URLs don\'t align, extra OUTPUTs will be ignored: {!r}'.format(args.output[len(urls):]))
+    if not args.stdout:
+        files = ['']*len(urls) if args.output is None else args.output+['']*(len(urls)-len(args.output))
+        if len(files) > len(urls):
+            logging.error('The specified OUTPUTs and URLs don\'t align, extra OUTPUTs will be ignored: {!r}'.format(args.output[len(urls):]))
 
-    path_files = [abspath(join(args.dir, f)) for f in files]
+        path_files = [abspath(join(args.dir, f)) for f in files]
+    else:
+        path_files = [args.stdout]  # ['-']
+        if len(path_files) < len(urls):
+            logging.error('The specified OUTPUT (i.e. stdout) and URLs don\'t align, extra URLs will be ignored: {!r}'.format(urls[len(path_files):]))
     path_urls = list(zip(path_files, urls))
 
     ignore_termination_signals()
@@ -421,17 +428,18 @@ def main():
             downloader.downloads(path_urls)
             succeeded, failed = downloader.wait_for_all()
     except BDownloaderException as e:
-        print(str(e))
+        logging.error(str(e))
         succeeded, failed = downloader.results()
 
     if succeeded:
-        print('Succeeded in downloading: {!r}'.format(succeeded))
+        sys.stderr.write('Succeeded in downloading: {!r}'.format(succeeded))
     if failed:
-        print('Failed to download: {!r}'.format(failed))
+        sys.stderr.write('Failed to download: {!r}'.format(failed))
 
     exit_code = downloader.result()
 
     fin_msg = '\nFile(s) downloading has successfully completed!' if not exit_code else '\nFile(s) downloading has aborted!'
-    print(fin_msg)
+    sys.stderr.write(fin_msg)
 
+    sys.stderr.flush()
     sys.exit(exit_code)
