@@ -56,7 +56,7 @@ Synopsis
                    [-p PROXY] [-n MAX_WORKERS] [-j MAX_PARALLEL_DOWNLOADS]
                    [-J WORKERS_PER_DOWNLOAD] [-k MIN_SPLIT_SIZE] [-s CHUNK_SIZE]
                    [-e COOKIE] [--user-agent USER_AGENT] [--referrer REFERRER]
-                   [--check-certificate {True,true,TRUE,False,false,FALSE}]
+                   [--check-certificate {true,false}]
                    [--ca-certificate CA_CERTIFICATE]
                    [--certificate CERTIFICATE] [--private-key PRIVATE_KEY]
                    [-P {mill,bar,none}] [--num-pools NUM_POOLS]
@@ -138,9 +138,9 @@ Description
     HTTP request header "Referer" that applies to all downloads. In particular, use `*` to tell the downloader
     to take the request URL as the referrer per download [default: `*`]
 
-``--check-certificate {True,true,TRUE,False,false,FALSE}``
+``--check-certificate {true,false}``
 
-    whether to verify the server's TLS certificate or not [default: True]
+    whether to verify the server's TLS certificate or not [default: true]
 
 ``--ca-certificate CA_CERTIFICATE``
 

@@ -82,8 +82,8 @@ def _dec_raw_tab_separated_urls(url):
 
     Examples:
         Examples of the parameter `url` include:
-            * ``'https://fakewebsite-01.com/downloads/soulbody4ct.pdf\\thttps://fakewebsite-02.com/archives/soulbody4ct.pdf'``
-            * ``'https://fakewebsite-01.com/downloads/ipcress.docx	https://fakewebsite-02.com/archives/ipcress.docx'``
+            * ``'https://fakewebsite-01.com/downloads/soulbody4ct.pdf\\thttps://fakesite.com/archives/soulbody4ct.pdf'``
+            * ``'https://fakewebsite-01.com/downloads/ipcress.docx\\thttps://fakewebsite-02.com/archives/ipcress.docx'``
             * ``'https://tianchengren:öp€nsasimi@i.louder.ss\\thttps://fangxun.xiaoqing.sunmoon.xue'``
 
     References:
@@ -98,7 +98,7 @@ def _dec_raw_tab_separated_urls(url):
     norm_url = decode(encode(url, 'latin-1', 'backslashreplace'), 'unicode_escape')
 
     # do some basic validation of the `url`
-    urls = norm_url.split('\t')
+    urls = norm_url.split()
     for suburl in urls:
         try:
             matched = _dec_raw_tab_separated_urls.regex.match(suburl.strip())
@@ -266,9 +266,8 @@ def _arg_parser():
                         help='HTTP request header "Referer" that applies to all downloads. In particular, use "*" to '
                              'tell the downloader to take the request URL as the referrer per download [default: *]')
 
-    parser.add_argument('--check-certificate', dest='check_certificate', default='True',
-                        choices=['True', 'true', 'TRUE', 'False', 'false', 'FALSE'],
-                        help='whether to verify the server\'s TLS certificate or not [default: True]')
+    parser.add_argument('--check-certificate', dest='check_certificate', default='true', type=lambda x: x.lower(), choices=['true', 'false'],
+                        help='whether to verify the server\'s TLS certificate or not [default: true]')
 
     parser.add_argument('--ca-certificate', dest='ca_certificate', default=None,
                         help='path to the preferred CA bundle file (.pem) or directory with certificates in PEM format '
@@ -283,7 +282,7 @@ def _arg_parser():
     parser.add_argument('--private-key', dest='private_key', default=None,
                         help='path to a file containing the unencrypted private key to the client certificate')
 
-    parser.add_argument('-P', '--progress', dest='progress', default='mill', choices=['mill', 'bar', 'none'],
+    parser.add_argument('-P', '--progress', dest='progress', default='mill', type=lambda x: x.lower(), choices=['mill', 'bar', 'none'],
                         help='progress indicator. To disable this feature, use "none". [default: mill]')
 
     parser.add_argument('--num-pools', dest='num_pools', default=DEFAULT_NUM_POOLS, type=int,
@@ -292,7 +291,7 @@ def _arg_parser():
     parser.add_argument('--pool-size', dest='pool_size', default=DEFAULT_POOL_SIZE, type=int,
                         help='max number of connections in the pool [default: {}]'.format(DEFAULT_POOL_SIZE))
 
-    parser.add_argument('-l', '--log-level', dest='log_level', default='warning',
+    parser.add_argument('-l', '--log-level', dest='log_level', default='warning', type=lambda x: x.lower(),
                         choices=['debug', 'info', 'warning', 'error', 'critical'], help='logger level [default: warning]')
 
     cmeg = parser.add_mutually_exclusive_group()
@@ -390,7 +389,7 @@ def main():
 
     continuation = True if args.continuation else False if args.no_continue else True
 
-    check_certificate = True if args.check_certificate.lower() == 'true' else False
+    check_certificate = True if args.check_certificate == 'true' else False
     client_certificate = (args.certificate, args.private_key) if args.certificate and args.private_key else args.certificate
 
     headers = None if not args.header else \
@@ -431,14 +430,17 @@ def main():
         logging.error(str(e))
         succeeded, failed = downloader.results()
 
+    sys.stderr.write('\n')
     if succeeded:
-        sys.stderr.write('Succeeded in downloading: {!r}'.format(succeeded))
+        sys.stderr.write('Succeeded in downloading: {!r}\n'.format(succeeded))
+    if succeeded and failed:
+        sys.stderr.write('\n')
     if failed:
-        sys.stderr.write('Failed to download: {!r}'.format(failed))
+        sys.stderr.write('Failed to download: {!r}\n'.format(failed))
 
     exit_code = downloader.result()
 
-    fin_msg = '\nFile(s) downloading has successfully completed!' if not exit_code else '\nFile(s) downloading has aborted!'
+    fin_msg = '\nFile(s) downloading has successfully completed!\n' if not exit_code else '\nFile(s) downloading has aborted!\n'
     sys.stderr.write(fin_msg)
 
     sys.stderr.flush()

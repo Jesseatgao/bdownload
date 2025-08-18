@@ -146,7 +146,8 @@ BDownloader.downloads(path_urls)
   
   * `path_urls` accepts a list of tuples of the form (_path_, _url_), where _path_ should be a pathname, probably prefixed
     with absolute or relative paths, and _url_ should be a URL string, which may consist of multiple TAB-separated URLs 
-    pointing to the same file. A valid `path_urls`, for example, could be [('_/opt/files/bar.tar.bz2_', '_https://foo.cc/bar.tar.bz2_'),
+    pointing to the same file. Be aware that a single dash '-' specifies the _path_ reserved for the standard output. 
+    A valid `path_urls`, for example, could be [('_/opt/files/bar.tar.bz2_', '_https://foo.cc/bar.tar.bz2_'),
     ('_./sanguoshuowen.pdf_', '_https://bar.cc/sanguoshuowen.pdf\thttps://foo.cc/sanguoshuowen.pdf_'), 
     ('_/**to**/**be**/created/_', '_https://flash.jiefang.rmy/lc-cl/gaozhuang/chelsia/rockspeaker.tar.gz_'), ('_/path/to/**existing**-dir_',
     '_https://ghosthat.bar/foo/puretonecone81.xz\thttps://tpot.horn/foo/puretonecone81.xz\thttps://hawkhill.bar/foo/puretonecone81.xz_')].
@@ -333,7 +334,7 @@ bdownload      url | -L URLS [URLS ...]
                [-p PROXY] [-n MAX_WORKERS] [-j MAX_PARALLEL_DOWNLOADS]
                [-J WORKERS_PER_DOWNLOAD] [-k MIN_SPLIT_SIZE] [-s CHUNK_SIZE]
                [-e COOKIE] [--user-agent USER_AGENT] [--referrer REFERRER]
-               [--check-certificate {True,true,TRUE,False,false,FALSE}]
+               [--check-certificate {true,false}]
                [--ca-certificate CA_CERTIFICATE]
                [--certificate CERTIFICATE] [--private-key PRIVATE_KEY]
                [-P {mill,bar,none}] [--num-pools NUM_POOLS]
@@ -415,9 +416,9 @@ bdownload      url | -L URLS [URLS ...]
     HTTP request header "Referer" that applies to all downloads. In particular, use `*` to tell the downloader
     to take the request URL as the referrer per download [default: *]
 
-`--check-certificate {True,true,TRUE,False,false,FALSE}`
+`--check-certificate {true,false}`
 
-    whether to verify the server's TLS certificate or not [default: True]
+    whether to verify the server's TLS certificate or not [default: true]
 
 `--ca-certificate CA_CERTIFICATE`
 

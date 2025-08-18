@@ -1427,7 +1427,7 @@ class BDownloader(object):
                     'orig_path_url': orig_path_url, 'path_url': None, 'urls': {}, 'ranges': {}, 'alt_ranges': [],
                     'worker_ranges': [], 'active_workers': 0, 'ranges_succeeded': 0}
 
-        orig_urls = url.split('\t')  # maybe TAB-separated URLs
+        orig_urls = url.split()  # maybe whitespace-separated URLs
         active_urls = []
         downloadable = False  # Must have at least one active URL to download the file
         for mirror_url in orig_urls:
