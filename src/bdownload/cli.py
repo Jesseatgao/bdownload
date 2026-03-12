@@ -283,13 +283,17 @@ def _arg_parser():
                         help='path to a file containing the unencrypted private key to the client certificate')
 
     parser.add_argument('-P', '--progress', dest='progress', default='mill', type=lambda x: x.lower(), choices=['mill', 'bar', 'none'],
-                        help='progress indicator. To disable this feature, use "none". [default: mill]')
+                        help='progress indicator. To disable this feature, use "none" [default: mill]')
 
     parser.add_argument('--num-pools', dest='num_pools', default=DEFAULT_NUM_POOLS, type=int,
                         help='number of connection pools [default: {}]'.format(DEFAULT_NUM_POOLS))
 
     parser.add_argument('--pool-size', dest='pool_size', default=DEFAULT_POOL_SIZE, type=int,
                         help='max number of connections in the pool [default: {}]'.format(DEFAULT_POOL_SIZE))
+
+    parser.add_argument('--pool-block', dest='pool_block', default='true', const='true', nargs='?', type=lambda x: x.lower(), choices=['true', 'false'],
+                        help='Whether the connection pool should block the call or create more connections '
+                             'when there is no free connections available [default: true]')
 
     parser.add_argument('-l', '--log-level', dest='log_level', default='warning', type=lambda x: x.lower(),
                         choices=['debug', 'info', 'warning', 'error', 'critical'], help='logger level [default: warning]')
@@ -389,6 +393,8 @@ def main():
 
     continuation = True if args.continuation else False if args.no_continue else True
 
+    pool_block = True if args.pool_block == 'true' else False
+
     check_certificate = True if args.check_certificate == 'true' else False
     client_certificate = (args.certificate, args.private_key) if args.certificate and args.private_key else args.certificate
 
@@ -420,9 +426,10 @@ def main():
         with BDownloader(max_workers=args.max_workers, max_parallel_downloads=args.max_parallel_downloads,
                          workers_per_download=args.workers_per_download, min_split_size=args.min_split_size,
                          chunk_size=args.chunk_size, proxy=args.proxy, cookies=args.cookie, user_agent=args.user_agent,
-                         progress=args.progress, num_pools=args.num_pools, pool_maxsize=args.pool_size, continuation=continuation,
-                         referrer=args.referrer, check_certificate=check_certificate, ca_certificate=args.ca_certificate,
-                         certificate=client_certificate, auth=default_auth, netrc=args.netrc_file, headers=headers) as downloader:
+                         progress=args.progress, num_pools=args.num_pools, pool_maxsize=args.pool_size, pool_block=pool_block,
+                         continuation=continuation, referrer=args.referrer, check_certificate=check_certificate,
+                         ca_certificate=args.ca_certificate, certificate=client_certificate, auth=default_auth, netrc=args.netrc_file,
+                         headers=headers) as downloader:
             install_signal_handlers(downloader)
             downloader.downloads(path_urls)
             succeeded, failed = downloader.wait_for_all()

@@ -56,11 +56,10 @@ Synopsis
                    [-p PROXY] [-n MAX_WORKERS] [-j MAX_PARALLEL_DOWNLOADS]
                    [-J WORKERS_PER_DOWNLOAD] [-k MIN_SPLIT_SIZE] [-s CHUNK_SIZE]
                    [-e COOKIE] [--user-agent USER_AGENT] [--referrer REFERRER]
-                   [--check-certificate {true,false}]
-                   [--ca-certificate CA_CERTIFICATE]
+                   [--check-certificate {true,false}] [--ca-certificate CA_CERTIFICATE]
                    [--certificate CERTIFICATE] [--private-key PRIVATE_KEY]
-                   [-P {mill,bar,none}] [--num-pools NUM_POOLS]
-                   [--pool-size POOL_SIZE] [-l {debug,info,warning,error,critical}]
+                   [-P {mill,bar,none}] [--num-pools NUM_POOLS] [--pool-size POOL_SIZE]
+                   [--pool-block [{true,false}]] [-l {debug,info,warning,error,critical}]
                    [-c | --no-continue] [-H HEADER] [-u USER_PASS] [--netrc-file NETRC_FILE]
                    [-h]
 
@@ -159,7 +158,7 @@ Description
 
 ``-P {mill,bar,none}, --progress {mill,bar,none}``
 
-    progress indicator. To disable this feature, use `none`. [default: mill]
+    progress indicator. To disable this feature, use `none` [default: mill]
 
 ``--num-pools NUM_POOLS``
 
@@ -168,6 +167,11 @@ Description
 ``--pool-size POOL_SIZE``
 
     max number of connections in the pool [default: 20]
+
+``--pool-block [{true,false}]``
+
+    whether the connection pool should block the call or create more connections when there is
+    no free connections available [default: true]
 
 ``-l {debug,info,warning,error,critical}, --log-level {debug,info,warning,error,critical}``
 

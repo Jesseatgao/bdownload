@@ -41,7 +41,7 @@ A multi-threaded and multi-source aria2-like batch file downloading library for 
 `
 class bdownload.BDownloader(max_workers=None, max_parallel_downloads=5, workers_per_download=4, min_split_size=1024*1024,
                             chunk_size=1024*100, proxy=None, cookies=None, user_agent=None, logger=None, progress='mill',
-                            num_pools=20, pool_maxsize=20, request_timeout=None, request_retries=None, status_forcelist=None,
+                            num_pools=20, pool_maxsize=20, pool_block=True, request_timeout=None, request_retries=None, status_forcelist=None,
                             resumption_retries=None, continuation=True, referrer=None, check_certificate=True, ca_certificate=None,
                             certificate=None, auth=None, netrc=None, headers=None)
 `
@@ -87,6 +87,9 @@ class bdownload.BDownloader(max_workers=None, max_parallel_downloads=5, workers_
   
   * `pool_maxsize` will be passed to the underlying `requests.adapters.HTTPAdapter`. It specifies the maximum number of 
     connections to save that can be reused in the urllib3 connection pool.
+
+  * `pool_block` specifies whether the urllib3 connection pool should block the call or create new connections 
+    when there is no free connections available.
 
   * The `request_timeout` parameter specifies the timeouts for the internal `requests` session. The timeout value(s) 
     as a float or `(connect, read)` tuple is intended for both the `connect` and the `read` timeouts, respectively.
@@ -334,11 +337,10 @@ bdownload      url | -L URLS [URLS ...]
                [-p PROXY] [-n MAX_WORKERS] [-j MAX_PARALLEL_DOWNLOADS]
                [-J WORKERS_PER_DOWNLOAD] [-k MIN_SPLIT_SIZE] [-s CHUNK_SIZE]
                [-e COOKIE] [--user-agent USER_AGENT] [--referrer REFERRER]
-               [--check-certificate {true,false}]
-               [--ca-certificate CA_CERTIFICATE]
+               [--check-certificate {true,false}] [--ca-certificate CA_CERTIFICATE]
                [--certificate CERTIFICATE] [--private-key PRIVATE_KEY]
-               [-P {mill,bar,none}] [--num-pools NUM_POOLS]
-               [--pool-size POOL_SIZE] [-l {debug,info,warning,error,critical}]
+               [-P {mill,bar,none}] [--num-pools NUM_POOLS] [--pool-size POOL_SIZE]
+               [--pool-block [{true,false}]] [-l {debug,info,warning,error,critical}]
                [-c | --no-continue] [-H HEADER] [-u USER_PASS] [--netrc-file NETRC_FILE]
                [-h]
 ```
@@ -437,7 +439,7 @@ bdownload      url | -L URLS [URLS ...]
 
 `-P {mill,bar,none}, --progress {mill,bar,none}`
 
-    progress indicator. To disable this feature, use `none`. [default: mill]
+    progress indicator. To disable this feature, use `none` [default: mill]
 
 `--num-pools NUM_POOLS`
 
@@ -446,6 +448,11 @@ bdownload      url | -L URLS [URLS ...]
 `--pool-size POOL_SIZE`
 
     max number of connections in the pool [default: 20]
+
+`--pool-block [{true,false}]`
+
+    whether the connection pool should block the call or create more connections when there is
+    no free connections available [default: true]
 
 `-l {debug,info,warning,error,critical}, --log-level {debug,info,warning,error,critical}`
 

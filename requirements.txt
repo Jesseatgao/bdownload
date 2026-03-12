@@ -18,7 +18,7 @@ Jinja2==2.11.3; python_version=="3.6"
 tox
 
 setuptools>=40.8.0, <=44.1.1; python_version=="2.7"
-setuptools>=40.8.0; python_version>="3.6"
+setuptools>=40.8.0, <81; python_version>="3.6"
 
 build; python_version!="3.6"
 build==0.7.0; python_version=="3.6"

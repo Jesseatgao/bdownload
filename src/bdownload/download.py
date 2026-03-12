@@ -334,7 +334,7 @@ class RequestsSessionWrapper(Session):
 
 
 def requests_retry_session(builtin_retries=None, backoff_factor=0.1, status_forcelist=None,
-                           session=None, num_pools=20, pool_maxsize=20, **kwargs):
+                           session=None, num_pools=20, pool_maxsize=20, pool_block=True, **kwargs):
     """Create a session object of the class :class:`RequestsSessionWrapper` by default.
 
     Aside from the retry mechanism implemented by the wrapper decorator, the created session also leverages the built-in
@@ -359,6 +359,8 @@ def requests_retry_session(builtin_retries=None, backoff_factor=0.1, status_forc
             ``urllib3.PoolManager`` and will eventually be passed to it.
         pool_maxsize (int): The maximum number of connections to save that can be reused in the ``urllib3`` connection
             pool, which will be passed to the underlying ``requests.adapters.HTTPAdapter``.
+        pool_block (bool): Whether the connection pool should block or create more connections when there is
+            no free connections available.
         **kwargs: Same arguments as that :meth:`RequestsSessionWrapper.__init__()` takes.
 
     Returns:
@@ -380,7 +382,7 @@ def requests_retry_session(builtin_retries=None, backoff_factor=0.1, status_forc
         backoff_factor=backoff_factor,
         status_forcelist=status_forcelist,
     )
-    adapter = HTTPAdapter(max_retries=max_retries, pool_connections=num_pools, pool_maxsize=pool_maxsize, pool_block=True)
+    adapter = HTTPAdapter(max_retries=max_retries, pool_connections=num_pools, pool_maxsize=pool_maxsize, pool_block=pool_block)
     session.mount('http://', adapter)
     session.mount('https://', adapter)
 
@@ -730,7 +732,7 @@ class BDownloader(object):
 
     def __init__(self, max_workers=None, max_parallel_downloads=5, workers_per_download=4, min_split_size=1024*1024,
                  chunk_size=1024*100, proxy=None, cookies=None, user_agent=None, logger=None, progress='mill',
-                 num_pools=20, pool_maxsize=20, request_timeout=None, request_retries=None, status_forcelist=None,
+                 num_pools=20, pool_maxsize=20, pool_block=True, request_timeout=None, request_retries=None, status_forcelist=None,
                  resumption_retries=None, continuation=True, referrer=None, check_certificate=True, ca_certificate=None,
                  certificate=None, auth=None, netrc=None, headers=None):
         """Create and initialize a :class:`BDownloader` object.
@@ -765,6 +767,8 @@ class BDownloader(object):
                 to cache.
             pool_maxsize (int): `pool_maxsize` will be passed to the underlying ``requests.adapters.HTTPAdapter``.
                 It specifies the maximum number of connections to save that can be reused in the urllib3 connection pool.
+            pool_block (bool): `pool_block` specifies whether the urllib3 connection pool should block the call or create
+                new connections when there is no free connections available.
             request_timeout (float or 2-tuple of float): The `request_timeout` parameter specifies the timeouts for the
                 internal ``requests`` session. The timeout value(s) as a float or ``(connect, read)`` tuple is intended
                 for both the ``connect`` and the ``read`` timeouts, respectively. If set to ``None``, it will take a
@@ -838,7 +842,7 @@ class BDownloader(object):
         self.requester = requests_retry_session(session=session, builtin_retries=request_retries,
                                                 backoff_factor=RETRY_BACKOFF_FACTOR,
                                                 status_forcelist=status_forcelist,
-                                                num_pools=num_pools, pool_maxsize=pool_maxsize)
+                                                num_pools=num_pools, pool_maxsize=pool_maxsize, pool_block=pool_block)
 
         self.max_parallel_downloads = max_parallel_downloads
         self.workers_per_download = workers_per_download
