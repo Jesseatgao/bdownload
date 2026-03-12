@@ -5,7 +5,7 @@
 
 A multi-threaded and multi-source aria2-like batch file downloading library for Python 2.7 and 3.6+
 
-> **:bulb:** **Note**\
+> **💡** **Note**\
 > See also [https://bdownload.readthedocs.io](https://bdownload.readthedocs.io) for API reference.
 
 ### Installation
@@ -20,7 +20,7 @@ A multi-threaded and multi-source aria2-like batch file downloading library for 
     
     Note that you should `git clone` or download the source tarball (and unpack it of course) from the repository first 
 
-> **:bulb:** **Note**\
+> **💡** **Note**\
 > For Python2.7: since the version of 2022.5.18, `certifi` has dropped the support for Python2.x. To upgrade to the latest CA
 > certificates bundle, simply run:
 > 
@@ -488,7 +488,9 @@ bdownload      url | -L URLS [URLS ...]
     bdownload -O /abspath/to/afile.tar.gz https://www.afilelink.com/afile.tar.gz
     bdownload -O /abspath/to/a/dir/ https://www.afilelink.com/afile.tar.gz
     bdownload -O /abspath/to/afile.tar.gz "https://www.afilelink.com/afile.tar.gz\thttps://nianpei.bpfatran.com/afile.tar.gz"
+    bdownload -O /abspath/to/afile.tar.gz "https://www.afilelink.com/afile.tar.gz https://nianpei.bpfatran.com/afile.tar.gz"
     bdownload -D path/to/working_dir/ -O relpath/to/working_dir/alias_afile.tar.gz https://www.afilelink.com/afile.tar.gz
     bdownload -D path/to/working/dir https://www.afilelink.com/afile.tar.gz
     bdownload -o /abspath/to/file1.zip ~/file2.tgz -L "http://foo.cc/file1.zip" "http://bar.cc/file2.tgz\thttp://bar2.cc/file2.tgz"
+    bdownload -o /abspath/to/file1.zip ~/file2.tgz -L "http://foo.cc/file1.zip" "http://bar.cc/file2.tgz  http://bar2.cc/file2.tgz"
     bdownload -D path/to/working/dir -L "http://foo.cc/file1.zip" "http://bar.cc/file2.tgz\thttp://bar2.cc/file2.tgz"
