@@ -104,7 +104,7 @@ class CleanCommand(_CleanCommand):
 
         for dir_name in dir_names:
             if os.path.exists(dir_name):
-                dir_util.remove_tree(dir_name, dry_run=self.dry_run)
+                dir_util.remove_tree(dir_name)  # FIXME
             else:
                 self.announce(
                     'skipping {0} since it does not exist'.format(dir_name))

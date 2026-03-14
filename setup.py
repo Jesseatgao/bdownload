@@ -42,7 +42,7 @@ setup(
         'clint',
         'futures; python_version=="2.7"',
         'certifi==2021.10.8; python_version=="2.7"',
-        'setuptools>=40.8.0, <81; python_version>="3.12"'
+        'setuptools>=66.1.0; python_version>="3.12"'
     ],
     setup_requires=[],
     cmdclass=cmd_classes,
