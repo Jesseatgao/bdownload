@@ -1012,27 +1012,27 @@ class BDownloader(object):
                         headers.update(ctx_file['urls'][url]['auth_header'])
 
                         try:
-                            r = self.requester.get(url, headers=headers, allow_redirects=True, stream=True, auth=ctx_file['urls'][url]['auth'])
-                            if r.status_code == requests.codes.partial:
-                                try:
-                                    for chunk in r.iter_content(chunk_size=self._STREAM_CHUNK_SIZE):
-                                        fd.write(chunk)
-                                        ctx_range['offset'] += len(chunk)
+                            with self.requester.get(url, headers=headers, allow_redirects=True, stream=True, auth=ctx_file['urls'][url]['auth']) as r:
+                                if r.status_code == requests.codes.partial:
+                                    try:
+                                        for chunk in r.iter_content(chunk_size=self._STREAM_CHUNK_SIZE):
+                                            fd.write(chunk)
+                                            ctx_range['offset'] += len(chunk)
 
-                                        self.raise_on_interrupted()
-                                except requests.RequestException as e:
-                                    self._logger.error("Error while downloading '%s'(range:%d-%d/%d-%d): '%r'",
-                                                       os.path.basename(path_name), start, end, ctx_range['start'],
-                                                       ctx_range['end'], e)
+                                            self.raise_on_interrupted()
+                                    except requests.RequestException as e:
+                                        self._logger.error("Error while downloading '%s'(range:%d-%d/%d-%d): '%r'",
+                                                           os.path.basename(path_name), start, end, ctx_range['start'],
+                                                           ctx_range['end'], e)
 
-                                    # increment the interrupted connection count
-                                    ctx_url = ctx_range['alt_urls'].setdefault(url, {})
-                                    ctx_url['interrupted'] = ctx_url.get('interrupted', 0) + 1
+                                        # increment the interrupted connection count
+                                        ctx_url = ctx_range['alt_urls'].setdefault(url, {})
+                                        ctx_url['interrupted'] = ctx_url.get('interrupted', 0) + 1
 
-                                    break
-                            else:
-                                msg = "Unexpected status code {}, which should have been {}.".format(r.status_code, requests.codes.partial)
-                                raise requests.RequestException(msg)
+                                        break
+                                else:
+                                    msg = "Unexpected status code {}, which should have been {}.".format(r.status_code, requests.codes.partial)
+                                    raise requests.RequestException(msg)
                         except requests.RequestException as e:
                             msg = "Error while downloading '{}'(range:{}-{}/{}-{}): '{!r}'".format(
                                 os.path.basename(path_name), start, end, ctx_range['start'], ctx_range['end'], e)
@@ -1136,36 +1136,36 @@ class BDownloader(object):
                 headers.update(ctx_file['urls'][url]['auth_header'])
 
                 try:
-                    r = self.requester.get(url, headers=headers, allow_redirects=True, stream=True, auth=ctx_file['urls'][url]['auth'])
-                    if r.status_code == status_code:
-                        try:
-                            for chunk in r.iter_content(chunk_size=self._STREAM_CHUNK_SIZE):
-                                if skip:
-                                    skip -= len(chunk)
-                                    continue
-                                writeb(chunk)
-                                ctx_range['offset'] += len(chunk)
+                    with self.requester.get(url, headers=headers, allow_redirects=True, stream=True, auth=ctx_file['urls'][url]['auth']) as r:
+                        if r.status_code == status_code:
+                            try:
+                                for chunk in r.iter_content(chunk_size=self._STREAM_CHUNK_SIZE):
+                                    if skip:
+                                        skip -= len(chunk)
+                                        continue
+                                    writeb(chunk)
+                                    ctx_range['offset'] += len(chunk)
 
-                                if headers:
-                                    range_start = ctx_range['start'] + ctx_range['offset']
+                                    if headers:
+                                        range_start = ctx_range['start'] + ctx_range['offset']
 
-                                self.raise_on_interrupted()
+                                    self.raise_on_interrupted()
 
-                            break
-                        except requests.RequestException as e:
-                            self._logger.error("Error while downloading '%s'(range:%s-%s/%s-%s): '%r'",
-                                               os.path.basename(path_name), range_start, range_end,
-                                               ctx_range['start'], file_end, e)
-                    else:
-                        msg = "Unexpected status code {}, which should have been {}. " \
-                              "This may be caused by ignored range request.".format(r.status_code, status_code)
-                        self._logger.error(msg)
-
-                        # In case the server responds with a '200' status code against a range request
-                        if (not alt_urls or alt_try >= len(alt_urls)) and r.status_code == requests.codes.ok:
-                            range_req_satisfiable = False
+                                break
+                            except requests.RequestException as e:
+                                self._logger.error("Error while downloading '%s'(range:%s-%s/%s-%s): '%r'",
+                                                   os.path.basename(path_name), range_start, range_end,
+                                                   ctx_range['start'], file_end, e)
                         else:
-                            raise requests.RequestException(msg)
+                            msg = "Unexpected status code {}, which should have been {}. " \
+                                  "This may be caused by ignored range request.".format(r.status_code, status_code)
+                            self._logger.error(msg)
+
+                            # In case the server responds with a '200' status code against a range request
+                            if (not alt_urls or alt_try >= len(alt_urls)) and r.status_code == requests.codes.ok:
+                                range_req_satisfiable = False
+                            else:
+                                raise requests.RequestException(msg)
                 except requests.RequestException as e:
                     msg = "Error while downloading '{}'(range:{}-{}/{}-{}): '{!r}'".format(
                         os.path.basename(path_name), range_start, range_end, ctx_range['start'], file_end, e)
