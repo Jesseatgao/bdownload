@@ -9,9 +9,9 @@ from __future__ import print_function
 import sys
 from platform import system
 from argparse import ArgumentParser, ArgumentTypeError
-from os.path import join, abspath, isfile
+from os.path import join, abspath, isfile, dirname
 import re
-from codecs import encode, decode
+from codecs import encode, decode, open
 import logging
 from functools import partial
 import signal
@@ -29,6 +29,12 @@ DEFAULT_MIN_SPLIT_SIZE = "1M"       # file split size in bytes[1M = 1024*1024]
 DEFAULT_CHUNK_SIZE = "100K"         # every request range size in bytes[1K = 1024]
 DEFAULT_NUM_POOLS = 20              # number of connection pools
 DEFAULT_POOL_SIZE = 20              # max number of connections in the pool
+
+
+here = abspath(dirname(__file__))
+
+with open(join(here, 'VERSION'), 'r', 'utf-8') as fd:
+    VERSION = fd.read().strip()
 
 
 def _win32_utf8_argv():
@@ -208,7 +214,7 @@ def _validate_netrc_file(file):
 
 
 def _arg_parser():
-    parser = ArgumentParser()
+    parser = ArgumentParser(prog='bdownload')
 
     omeg = parser.add_mutually_exclusive_group()
     omeg.add_argument('-O', '--OUTPUT', dest='output', type=lambda f: [f],
@@ -315,6 +321,8 @@ def _arg_parser():
     parser.add_argument('--netrc-file', dest='netrc_file', type=_validate_netrc_file,
                         help='a .netrc-like file for HTTP authentication, from which the \'default\' entry, if present, '
                              'takes precedence over the \'--user-pass\' option')
+
+    parser.add_argument('-V', '--version', action='version', version=f'%(prog)s {VERSION}')
 
     return parser
 

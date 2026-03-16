@@ -342,7 +342,7 @@ bdownload      url | -L URLS [URLS ...]
                [-P {mill,bar,none}] [--num-pools NUM_POOLS] [--pool-size POOL_SIZE]
                [--pool-block [{true,false}]] [-l {debug,info,warning,error,critical}]
                [-c | --no-continue] [-H HEADER] [-u USER_PASS] [--netrc-file NETRC_FILE]
-               [-h]
+               [-V] [-h]
 ```
 
 #### Description
@@ -475,12 +475,16 @@ bdownload      url | -L URLS [URLS ...]
 `-u USER_PASS, --user-pass USER_PASS`
 
     default HTTP Authentication for ALL the downloads in "`user:password`" format. **Warning**: don't use this option
-    if not all of the downloads need the authentication to avoid leaking credential, use the `--netrc-file` option instead
+    if not all the downloads need the authentication to avoid leaking credential, use the `--netrc-file` option instead
 
 `--netrc-file NETRC_FILE`
 
     a .netrc-like file for HTTP authentication, from which the 'default' entry, if present, takes precedence
     over the `--user-pass` option
+
+`-V, --version`
+
+    show program's version number and exit
 
 `-h, --help`
 
