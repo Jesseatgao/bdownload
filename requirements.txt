@@ -25,6 +25,8 @@ build; python_version!="3.6"
 build==0.7.0; python_version=="3.6"
 virtualenv==20.14.1; python_version=="3.6"
 
+virtualenv<=20.21.1
+
 wheel
 
 pyparsing==2.4.7; python_version=="3.6"

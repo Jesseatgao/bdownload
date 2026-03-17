@@ -322,7 +322,7 @@ def _arg_parser():
                         help='a .netrc-like file for HTTP authentication, from which the \'default\' entry, if present, '
                              'takes precedence over the \'--user-pass\' option')
 
-    parser.add_argument('-V', '--version', action='version', version=f'%(prog)s {VERSION}')
+    parser.add_argument('-V', '--version', action='version', version='%(prog)s ' + VERSION)
 
     return parser
 
